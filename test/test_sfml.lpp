@@ -1,0 +1,31 @@
+import SFML/Graphics
+
+func main is (void) -> int {
+  var window(sf::VideoMode(800, 600), "hi :>"): sf::RenderWindow;
+
+  window.setFramerateLimit 60;
+
+  var font: sf::Font;
+
+  if ! font.loadFromFile "LiberationMono-Regular.ttf"
+    return EXIT_FAILURE;
+  var text("hi thar", font, 50): sf::Text;
+
+  var shape(100.f): sf::CircleShape;
+  shape.setFillColor sf::Color::Green;
+
+  var event: sf::Event;
+  while window.isOpen! {
+  	while window.pollEvent event {
+  		if event.type == sf::Event::Closed
+  			window.close!;
+  	}
+
+  	window.clear!;
+    window.draw shape;
+
+  	window.display!;
+  }
+  return EXIT_SUCCESS;
+}
+

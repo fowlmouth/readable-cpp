@@ -1,0 +1,2 @@
+include: <SFML/Graphics.hpp>
+linker: "-lsfml-graphics -lsfml-window -lsfml-system"
