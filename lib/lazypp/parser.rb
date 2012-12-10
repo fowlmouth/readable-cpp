@@ -155,7 +155,7 @@ class Parser < Parslet::Parser
       `ctor` >> colon_is? >>
       parens(`void` | ident_defs).as(:args) >> space? >>
       join(
-        ident.as(:member) >> parens(expr.as(:initial_value)),
+        (namespaced_ident|ident).as(:member) >> parens(join(expr.as(:args), space? >> comma >> space)),  #  expr.as(:initial_value)),
         space? >> (comma >> space?).maybe
       ).maybe.as(:initializers) >> space? >>
       body.as(:body)
@@ -216,14 +216,14 @@ class Parser < Parslet::Parser
   }
   rule(:class_decl) {
     (`class` | `struct`).as(:class_type) >> (
-      (space? >> str(?<) >> space? | space >> `inherits` >> space) >>
+      (space? >> str(?<) >> space? | space >> (`of`|`inherits`) >> space) >>
       join(parent_class, space? >> comma >> space?).as(:parents)
     ).maybe >>
     space? >> brackets(program).as(:body)
   }
   rule(:parent_class) {
     (visibility.as(:vis) >> space).maybe >>
-    ident.as(:parent)
+    (namespaced_ident | ident).as(:parent)
   }
   rule(:visibility) {
     `public` | `private` | `protected`

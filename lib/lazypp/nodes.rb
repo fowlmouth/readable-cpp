@@ -301,10 +301,15 @@ TypeDecl = Node.new(:name, :type)
 class ClassDecl < TypeDecl
   attr_accessor :body, :parents
   def initialize name, type, body, parents
-    @name, @type, @body, @parents = name, type, body, parents
+    @name, @type, @body, @parents = name, type, body, 
+      (parents.is_a?(Array) ? parents : [parents])
   end
   def to_cpp
-    "class #{name} #{not parents.nil? and parents.map(&:to_cpp).join(', ')} {\n#{body.to_cpp}\n}\n"
+    "class #{name} #{
+      ": #{
+        parents.map { |p| 
+          "#{p[:vis].to_cpp} #{p[:parent].to_cpp}"
+        }.join', '}" unless parents.nil?} \n{\n#{body.to_cpp}\n};"
   end
 end
 Expr = Node.new(:prefix, :expr, :postfix) do
