@@ -7,8 +7,8 @@ module ParserMethods
     }.
     reduce(:>>)
   end
-  def join(rule, on, min = 0) 
-    rule >> (on >> rule).repeat(min) 
+  def join(rule, on, min = 0, max = nil) 
+    rule >> (on >> rule).repeat(min, max) 
   end
   def parens(rule) 
     l_paren >> space? >> rule >> space? >> r_paren 

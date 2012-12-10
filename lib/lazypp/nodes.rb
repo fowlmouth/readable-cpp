@@ -10,7 +10,7 @@ Transform = Parslet::Transform.new {
     StmtList.new s
   }
   rule(wchar: simple(:w), string: simple(:s)) {
-    StringNode.new(w, s)
+    StringLit.new(w, s)
   }
   rule(type: {derived: subtree(:d), base: subtree(:b)}){
     Type.new(b, [*d])
@@ -31,10 +31,6 @@ Transform = Parslet::Transform.new {
   rule(ident_def: subtree(:i)){
     IdentDef.new(i[:name], i[:type], i[:default])
   }
-  # rule(var_decl: subtree(:v)) {
-  #   #VarDecl.new(v[:names], v[:type])
-  #   v
-  # }
   rule(var_decl: {name: simple(:n), type: simple(:t)}) {
     VarDeclSimple.new(n, t, nil)
   }
@@ -83,7 +79,7 @@ Transform = Parslet::Transform.new {
     body: simple(:b) }) {
     FuncDecl.new name, args, returns, b
   }
-  rule(op: simple(:o)) { o.to_s.intern }
+  rule(op: simple(:o)) { o.is_a?(Parslet::Slice) ? o.to_s.intern : o }
   rule(float: simple(:f), type: simple(:t)) {
     FloatLiteral.new(f, t)
   }
@@ -112,8 +108,16 @@ Transform = Parslet::Transform.new {
     infix: simple(:i), right: simple(:x2)) {
     InfixExpr.new(Expr.new(p, x, pp), i.to_s, x2)
   }
+  rule(
+    expr: simple(:x), postfix: simple(:pp),
+    infix: simple(:i), right: simple(:x2)) {
+    InfixExpr.new(Expr.new(nil, x, pp), i.to_s, x2)
+  }
   rule(expr: simple(:x)) {
     Expr.new(nil, x, nil)
+  }
+  rule(expr: simple(:x), postfix: simple(:pp)) {
+    Expr.new(nil, x, pp)
   }
   rule(expr: simple(:l), infix: simple(:i), right: simple(:r)) {
     InfixExpr.new(l, i.to_s, r)
@@ -147,6 +151,9 @@ Transform = Parslet::Transform.new {
   rule(dot_ident: subtree(:d)) {
     DotName.new d
   }
+  # rule(dot_ident: simple(:d)) {
+  #   DotName.new d
+  # }
   rule(namespace: sequence(:n)) {
     NamespaceIdent.new n
   }
@@ -155,6 +162,23 @@ Transform = Parslet::Transform.new {
     cond: simple(:c),
     body: simple(:b) }) {
     Conditional.new k, c, b
+  }
+  rule(conditional: {
+    kind: 'for',
+    l: simple(:l),
+    m: simple(:m),
+    r: simple(:r),
+    body: simple(:b) }) {
+    ForStmt.new :for, [l, m, r], b
+  }
+  rule(namespaced: simple(:i)) {
+    NamespaceIdent.new i
+  }
+  rule(namespaced: sequence(:i)) {
+    NamespaceIdent.new(i)
+  }
+  rule(sq_bracket_expr: simple(:x)) {
+    BracketExpr.new x
   }
 }
 class Node
@@ -191,8 +215,15 @@ Conditional = Node.new(:kind, :condition, :body) do
     "#{kind}(#{condition.to_cpp}) {\n#{body.to_cpp}\n}"
   end
 end
-NamespaceIdent = Node.new(:name) do
-  def to_cpp; name.join '::' end
+ForStmt = Class.new(Conditional) do
+  def to_cpp
+    "for(#{last = condition[0].to_cpp}#{
+      ';' unless last[-1] == ';'}#{condition[1].to_cpp};#{condition[2].to_cpp}) {\n#{
+      body.to_cpp}\n}"
+  end
+end
+NamespaceIdent = Node.new(:names) do
+  def to_cpp; [*names].map(&:to_cpp).join '::' end
 end
 DotName = Node.new(:name) do
   def to_cpp; [*name].map { |n|
@@ -280,7 +311,7 @@ Expr = Node.new(:prefix, :expr, :postfix) do
   def to_cpp
     prefix.nil? && postfix.nil? ? 
     expr.to_cpp : 
-    "(#{prefix.p.to_cpp << expr.p.to_cpp << postfix.p.to_cpp})"
+    "(#{prefix.to_cpp}#{expr.to_cpp}#{postfix.to_cpp})"
   end
 end
 InfixExpr = Node.new(:left, :infix, :right) do
@@ -288,8 +319,16 @@ InfixExpr = Node.new(:left, :infix, :right) do
     "#{left.to_cpp} #{infix.to_cpp} #{right.to_cpp}"
   end
 end
-
-GenericIdent = Node.new(:ident, :generic)
+BracketExpr = Node.new(:expr) do
+  def to_cpp
+    "[#{expr.to_cpp}]"
+  end
+end
+GenericIdent = Node.new(:ident, :generic) do
+  def to_cpp
+    "#{ident.to_cpp}<#{[*generic].map(&:to_cpp).join', '}>"
+  end
+end
 UnionType = Node.new(:members)
 EnumType = Node.new(:fields)
 VarDeclSimple = Node.new(:name, :type, :val) do
@@ -335,7 +374,7 @@ ImportStmt = Node.new(:pkg) do
     }.join('')
   end
 end
-StringNode = Node.new(:wchar, :str) do
+StringLit = Node.new(:wchar, :str) do
   def to_cpp; "#{?L if wchar}\"#{str}\"" end
 end
 IncludeStmt = Node.new(:file, :type) do

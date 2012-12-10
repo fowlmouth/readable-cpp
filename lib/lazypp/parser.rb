@@ -8,6 +8,10 @@ class Parser < Parslet::Parser
   def spaced?(rule)
     space? >> rule >> space?
   end
+  def parens_oder_spacen(rule)
+    l_paren >> space? >> rule >> space? >> r_paren |
+    space >> rule
+  end
 
   rule(:space) { 
     (match['\s'].repeat(1) | comments).repeat(1)
@@ -71,7 +75,9 @@ class Parser < Parslet::Parser
       derived_type.as(:derived).maybe >> space? >>
       ( union_decl.as(:union) | 
         enum_decl.as(:enum)   |
-        namespaced_ident | 
+        join(
+          (ident | namespaced_ident) >> generic?, 
+          str('::'), 0).as(:namespaced) | 
         join(ident, space, 0)
       ).as(:base)
     ).as(:type)
@@ -181,7 +187,8 @@ class Parser < Parslet::Parser
     str('|=') | str('&=') |
     str('++') | str('--') | str('<<') | str('>>') |
     str('+')  | str('-')  | str('/')  | str('*')  |
-    str('&')  | str('|')  | str('=')
+    str('&')  | str('|')  | str('=')  |
+    str('<')  | str('>')
   }
   rule(:operator_prefix) {
     str('++') | str('--') | match['!~+\-&*'] |
@@ -265,7 +272,12 @@ class Parser < Parslet::Parser
       (`if`|`elseif`|`while`).as(:kind) >> 
         (space >> expr | space? >> parens(expr)).as(:cond) >>
         space? >> (body | stmt).as(:body) |
-      `else`.as(:kind) >> (space? >> body | space >> stmt).as(:body)
+      `else`.as(:kind) >> (space? >> body | space >> stmt).as(:body) |
+      `for`.as(:kind) >> parens_oder_spacen(
+        (var_decl | expr >> space? >> semicolon).as(:l) >>
+        space? >> expr.as(:m) >> space? >> semicolon >>
+        space? >> expr.as(:r) )  >>
+        (space? >> body | space >> stmt).as(:body)
     ).as(:conditional)
   }
 
@@ -285,11 +297,16 @@ class Parser < Parslet::Parser
           float | int | string | char | cast | 
           func_call | namespaced_ident | dot_ident
         ).as(:expr) >>
-        (operator_postfix.as(:op)).as(:postfix).maybe |
+        (operator_postfix | sq_bracket_expr).as(:op).as(:postfix).maybe |
         parens(expr)
       ) >> 
       (space? >> operator.as(:infix) >> space? >> expr.as(:right)).maybe
     
+  }
+  rule(:sq_bracket_expr) {
+    (
+      str(?[) >> space? >> expr >> space? >> str(?])
+    ).as(:sq_bracket_expr)
   }
   rule(:cast) {
     `cast` >> str(?<) >> type.as(:type) >> str(?>) >> 

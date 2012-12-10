@@ -1,3 +1,4 @@
+#!/usr/bin/env ruby
 require'parslet'
 require'pry'
 require'open-uri'
@@ -34,7 +35,7 @@ end
 
 module LazyPP
   class Package
-    PackageDir = File.expand_path(File.join __FILE__, '..', '..', 'pkg')
+    PackageDir = File.expand_path('~/.config/cpptranny/pkg')
     @packages = {}
     attr_reader :includes, :linker
     def self.new name
@@ -61,33 +62,45 @@ module LazyPP
       @basefn = ::File.basename(file, '.lpp')
       @outname = @basefn + '.cpp'
       parse
+      clean
     end
-    def parse
-      @file = Transform.apply(@tree = @p.parse(File.read(@fn)))
+    def parse() @file, @tree = parse_str(File.read @fn) end
+    def parse_str str
+      [Transform.apply(tree = @p.parse(str)), tree]
+    rescue Parslet::ParseFailed => _
+      puts _.cause.ascii_tree
+      [nil, nil]
+    end
+
+    def clean
+      return if @file.nil?
       @file.each { |s| 
         if s.is_a? ImportStmt
           @pkgs.add s.p
         end
       }
-    rescue Parslet::ParseFailed => _
-      puts _.cause.ascii_tree
     end
 
     def [](key); @file[key] end 
 
     def to_cpp; @file.to_cpp end
     def write build = false
-      open(@outname, 'w+') do |f| 
-        f.puts to_cpp
+      FileUtils.mkdir_p 'build'
+      Dir.chdir 'build' do
+        open(@outname, 'w+') do |f| 
+          f.puts to_cpp
+        end
+        open(buildscript = "build.#{@basefn}.sh", 'w+') do |f|
+          f.puts buildscripts
+        end
+        system 'chmod +x '<< buildscript
+        system './'<<buildscript if build
       end
-      open(buildscript = "build.#{@basefn}.sh", 'w+') do |f|
-        f.puts buildscripts
-      end
-      system 'chmod +x '<< buildscript
-      system './'<<buildscript if build
     end
     def buildscripts
-      linker_opts = @pkgs.map { |p| p.linker or nil }.compact.join' '
+      linker_opts = @pkgs.map { |p| 
+        p.linker or nil 
+      }.compact.join' '
       "#!/bin/sh \n" \
       "g++ -c #{@outname} &&\n" \
       "g++ #{@basefn}.o -o #{@basefn} #{linker_opts} \n"
@@ -101,25 +114,38 @@ def check s
     &:read
 end
 
-opts = Trollop::options {
+opts = Trollop.options {
   banner <<-EOS
 Usage: 
        lazypp.rb -f somefile.lpp
+
+       Packages will be searched in #{LazyPP::Package::PackageDir}
   EOS
   opt :f, "file", type: :string
   opt :p, "print result", default: false
   opt :t, "print intermediate tree", default: false
   opt :w, "write", default: false
   opt :b, "build", default: false
+  opt :r, "run", default: false
+  opt :P, "start a pry session", default: false
 }
 Trollop.die :f, "File argument (-f) is required" unless opts[:f]
 Trollop.die :f, "File does not exist" unless File.exist?(opts[:f])
 
+if not File.exist?(LazyPP::Package::PackageDir) ||
+  (realdir = File.realdirpath(LazyPP::Package::PackageDir)) &&
+  !File.directory?(realdir)
+
+  binding.pry
+end
+
+
 p = LazyPP::Program.new opts[:f]
 
-puts p.to_cpp,"\n\n" if opts[:p]
 ap p.tree if opts[:t]
+puts p.to_cpp,"\n\n" if opts[:p]
 
 p.write(opts[:b]) if opts[:w] || opts[:b]
 
-#binding.pry
+
+binding.pry if opts[:P]
