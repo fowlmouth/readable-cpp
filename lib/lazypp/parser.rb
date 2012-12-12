@@ -12,6 +12,14 @@ class Parser < Parslet::Parser
     l_paren >> space? >> rule >> space? >> r_paren |
     space >> rule
   end
+  def parens?(rule)
+    (l_paren >> space? >> rule >> space? >> r_paren) |
+    rule
+  end
+  def paren_tagged?(rule, tag)
+    (l_paren >> space? >> rule.as(tag) >> space? >> r_paren) |
+    rule
+  end
 
   rule(:space) { 
     (match['\s'].repeat(1) | comments).repeat(1)
@@ -49,7 +57,8 @@ class Parser < Parslet::Parser
   rule(:ident) { (match['A-Za-z_'] >> match['A-Za-z0-9_'].repeat).as(:ident) }
   rule(:namespaced_ident) { join(ident, str('::'), 1).as(:namespace) }
   rule(:generic?) {
-    (str(?<) >> comma_list(namespaced_ident|ident).as(:generics) >> str(?>)).maybe
+    (str(?<) >> comma_list(namespaced_ident|ident|type
+      ).as(:generics) >> str(?>)).maybe
   }
   rule(:digit) do match['\d'] end
   rule(:int) { digit.repeat(1).as(:int) }
@@ -102,7 +111,7 @@ class Parser < Parslet::Parser
       `var` >> space >> 
       ##single assign
       ( ident.as(:name) >> colon_is  >>
-        type.as(:type) >> spaced?(str(?=) >> space? >> expr).maybe |
+        type.as(:type) >> spaced?(str(?=) >> space? >> expr.as(:expr)).maybe |
       ##multiple decl/initialize
         comma_list(ident.as(:name) >> parens(comma_list(expr).maybe).maybe.as(:constructor)).as(:names) >>
         colon_is >> type.as(:type)
@@ -203,7 +212,7 @@ class Parser < Parslet::Parser
   }
   rule(:operator_prefix) {
     str('++') | str('--') | match['!~+\-&*'] |
-    `new` | `delete`
+    ((`new` | `delete`) >> space)
   }
   rule(:operator_postfix) {
     str('++') | str('--')
@@ -262,16 +271,35 @@ class Parser < Parslet::Parser
     match[' \t'].repeat >> match['\n']
   }
 
+  rule(:access) do str('.*') | str('.') | str('->') end
   rule(:dot_ident) {
-    join(ident, (str('.') | str('->')).as(:access)).as(:dot_ident)
+    join(ident, access.as(:access)).as(:dot_ident)
+  }
+  rule(:func_call_new) {
+      (
+        str(?!) | 
+        parens(comma_list(expr).maybe) | 
+        space_nonterminal >> comma_list(expr)
+      ).as(:args)
   }
   rule(:func_call) {
-    (namespaced_ident | dot_ident).as(:func) >>
+    (namespaced_ident | dot_ident | expr).as(:func) >>
     (
       str(?!) |
       parens(comma_list(expr).maybe) |
       space_nonterminal >> comma_list(expr)
     ).as(:args)
+
+    # join(
+    #   parens?(
+    #     (namespaced_ident | dot_ident).as(:func) >>
+    #     (
+    #       str(?!) |
+    #       parens(comma_list(expr).maybe) |
+    #       space_nonterminal >> comma_list(expr)
+    #     ).as(:args)
+    #   ), access.as(:access), 0
+    # ).as(:dot_ident).as(:func_call)
   }
   rule(:space_nonterminal) {
     match[' \t'].repeat(1) >> (str(?\\) >> space).maybe |
@@ -285,7 +313,7 @@ class Parser < Parslet::Parser
         space? >> (body | stmt).as(:body) |
       `else`.as(:kind) >> (space? >> body | space >> stmt).as(:body) |
       `for`.as(:kind) >> parens_oder_spacen(
-        (var_decl | expr >> space? >> semicolon).as(:l) >>
+        (var_decl | auto_decl | expr >> space? >> semicolon).as(:l) >>
         space? >> expr.as(:m) >> space? >> semicolon >>
         space? >> expr.as(:r) )  >>
         (space? >> body | space >> stmt).as(:body)
@@ -304,13 +332,13 @@ class Parser < Parslet::Parser
   rule(:expr) {
       (
         (operator_prefix.as(:op) >> space?).as(:prefix).maybe >>
-        (
+        paren_tagged?(
           float | int | string | char | cast | 
-          func_call | namespaced_ident | dot_ident
+          namespaced_ident | dot_ident , :parens
         ).as(:expr) >>
         (operator_postfix | sq_bracket_expr).as(:op).as(:postfix).maybe |
-        parens(expr)
-      ) >> 
+        parens(expr).as(:parens)
+      ) >> (func_call_new.maybe) >>
       (space? >> operator.as(:infix) >> space? >> expr.as(:right)).maybe
     
   }

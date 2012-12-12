@@ -33,14 +33,14 @@ Transform = Parslet::Transform.new {
     EnumType.new f
   }
   rule(lang_section: subtree(:l)) {
-    binding.pry
-    LangSection.new(l)
-  }
-  # rule(ident_def: subtree(:i)){
-  #   IdentDef.new(i[:name], i[:type], i[:default])
-  # }
+    #binding.pry
+    LangSection.new(l) }
   rule(ident_def: {
     names: sequence(:n), type: simple(:t)}) {
+    IdentDef.new n, t, nil
+  }
+  rule(ident_def: {
+    names: simple(:n), type: simple(:t) }) {
     IdentDef.new n, t, nil
   }
   rule(ident_def: {
@@ -48,6 +48,9 @@ Transform = Parslet::Transform.new {
     default: simple(:d)  }) {
     IdentDef.new n, t, d
   }
+  # rule(var_decl: {
+  #   name: simple(:n), type: simple(:t),
+  #   })
   rule(var_decl: {name: simple(:n), type: simple(:t)}) {
     VarDeclSimple.new(n, t, nil)
   }
@@ -113,9 +116,21 @@ Transform = Parslet::Transform.new {
   rule(ctor_decl: subtree(:c)) {
     CtorDecl.new(c[:args], c[:initializers], c[:body], c[:name])
   }
+  rule(parens: simple(:x)) { 
+    ParenExpr.new x
+  }
+  rule(parens: simple(:x), args: simple(:a)) {
+    FuncCall.new ParenExpr.new(x), a
+  }
   rule(prefix: simple(:p), expr: simple(:x)) {
     Expr.new(p.to_s, x, nil)
   }
+  rule(prefix: simple(:p), expr: simple(:x), args: subtree(:a)) {
+    FuncCall.new(Expr.new(p, x, nil), a)
+  }
+  # rule(prefix: simple(:p), expr: simple(:x), args: simple(:a)) {
+  #   FuncCall.new(Expr.new(p.to_s, x, nil), a)
+  # }
   rule(
     prefix: simple(:p), expr: simple(:x),
     infix: simple(:i), right: simple(:x2)) {
@@ -143,9 +158,18 @@ Transform = Parslet::Transform.new {
   rule(expr_stmt: simple(:x)) {
     ExprStmt.new(x)
   }
-  rule(func: simple(:name), args: subtree(:args)) {
-    FuncCall.new name, args
+  rule(expr: simple(:x), args: subtree(:a)) {
+    FuncCall.new x, a
   }
+  rule(parens: simple(:x), args: subtree(:a)) {
+    FuncCall.new x, a
+  }
+  # rule(func: simple(:name), args: subtree(:args)) {
+  #   FuncCall.new name, Array.wrap(args)
+  # }
+  # rule(access: simple(:a), func: simple(:name), args: subtree(:args)) {
+  #   FuncCall.new name.prefix(a), Array.wrap(args)
+  # }
   rule(type_decl: { 
     name: simple(:n),
     type: { 
@@ -188,6 +212,11 @@ Transform = Parslet::Transform.new {
     r: simple(:r),
     body: simple(:b) }) {
     ForStmt.new :for, [l, m, r], b
+  }
+  rule(conditional: {
+    kind: simple(:k), ##else
+    body: simple(:b) }) {
+    Conditional.new k, nil, b
   }
   rule(namespaced: simple(:i)) {
     NamespaceIdent.new i
@@ -238,14 +267,14 @@ class RenderState
   attr_reader :opts
   def initialize opts={}
     @opts = { 
-      indent: 0, parent: nil 
+      indent: 0, parent: nil, program: nil
     }.merge(opts.is_a?(RenderState) ? opts.opts : opts)
-
   end
   def parent=(p)
     @opts[:parent] = p
   end
   def parent() @opts[:parent] end
+  def program() @opts[:program] end
   def indent(by=1) 
     RenderState.new(@opts.merge(indent: @opts[:indent]+by))
   end
@@ -254,24 +283,27 @@ end
 
 Conditional = Node.new(:kind, :condition, :body) do
   def to_cpp(rs)
-    "#{rs.indentation}#{kind}(#{condition.to_cpp}) {\n#{body.to_cpp(rs.indent)}\n#{rs.indentation}}"
+    "#{rs.indentation}#{kind}#{
+      "(#{condition.to_cpp})" unless condition.nil?
+    } {\n#{body.to_cpp(rs.indent)}\n#{rs.indentation}}"
   end
 end
 ForStmt = Class.new(Conditional) do
-  def to_cpp(rs = RenderState.new)
-
-    "#{rs.indentation}for(#{last = condition[0].to_cpp}#{
+  def to_cpp rs
+    "#{rs.indentation}for(#{last = condition[0].to_cpp(rs)}#{
       ';' unless last[-1] == ';'}#{condition[1].to_cpp};#{condition[2].to_cpp}) {\n#{
-      body.to_cpp(rs.indent)}\n}"
+      body.to_cpp(rs.indent)}\n#{rs.indentation}}"
   end
 end
 NamespaceIdent = Node.new(:names) do
   def to_cpp(*); [*names].map(&:to_cpp).join '::' end
 end
 DotName = Node.new(:name) do
-  def to_cpp(*); [*name].map { |n|
+  def name= val; @name = Array.wrap(val) end
+  def to_cpp(*); name.map { |n|
     n.is_a?(Hash) ? n.values : n
-  }.flatten.map(&:to_s).join end
+  }.flatten.map(&:to_cpp).join end
+  def prefix name; @name.insert 0, name end
 end
 Visibility = Node.new(:v) do
   def to_cpp rs = RenderState.new()
@@ -281,9 +313,18 @@ Visibility = Node.new(:v) do
   end
 end
 FuncCall = Node.new(:name, :args) do
+  def args= val
+    @args = if val == ?! || val == '()'
+      nil
+    else
+      Array.wrap val
+    end
+  end
   def to_cpp(*)
-    name.to_cpp + '(' << (
-      args != ?! && [*args].map(&:to_cpp).join(', ') || '') << ')'
+    name.to_cpp + '(' + (
+      args.nil? ? '' : args.map(&:to_cpp).join(', ')) + ')'
+
+      #args != ?! && [*args].map(&:to_cpp).join(', ') || '') << ')'
   end
 end
 ExprStmt = Node.new(:expr) do
@@ -292,6 +333,9 @@ end
 LangSection = Node.new(:txt) 
 AutoDecl = Node.new(:name, :val) do
   def to_cpp(rs)
+    unless rs.program.nil?
+      rs.program.notify self
+    end
     "#{rs.indentation}auto #{name.to_cpp} = #{val.to_cpp};"
   end
 end
@@ -372,10 +416,14 @@ class ClassDecl < TypeDecl
 end
 Expr = Node.new(:prefix, :expr, :postfix) do
   def to_cpp(*)
-    prefix.nil? && postfix.nil? ? 
-    expr.to_cpp : 
-    "(#{prefix.to_cpp}#{expr.to_cpp}#{postfix.to_cpp})"
+    # prefix.nil? && postfix.nil? ? 
+    # expr.to_cpp : 
+    # "(#{prefix.to_cpp}#{expr.to_cpp}#{postfix.to_cpp})"
+    "#{prefix.to_cpp}#{expr.to_cpp}#{postfix.to_cpp}"
   end
+end
+ParenExpr = Node.new(:expr) do
+  def to_cpp(*) "(#{expr.to_cpp})" end
 end
 InfixExpr = Node.new(:left, :infix, :right) do
   def to_cpp(*)
@@ -398,7 +446,8 @@ VarDeclSimple = Node.new(:name, :type, :val) do
   def to_cpp(rs = RenderState.new())
     # res = type.to_cpp
     # [*names].map { |n| (res + ';') % n }.join('')
-    rs.indentation + (type.to_cpp % name) + (val && " = #{val.to_cpp};" || ';')
+    rs.indentation + (type.base_cpp % '') + ' ' + (type.derived_cpp%name) + 
+      (val && " = #{val.to_cpp};" || ';')
   end
 end
 VarDeclInitializer = Node.new(:names, :type)do
@@ -431,7 +480,10 @@ ImportStmt = Node.new(:pkg) do
     @p = Package.new(pkg)
   end
 
-  def to_cpp(*) 
+  def to_cpp(rs)
+    unless rs.program.nil?
+      rs.program.notify self
+    end
     @p.includes.map { |i|
       "#include #{i}\n"
     }.join('')
@@ -510,7 +562,7 @@ class OperDecl < FuncDecl; end
         (name.p =~ /implicit/i) ? '' : name))
     }(#{args.to_cpp}) #{returns.constness} #{
       body.nil? ? ?; : "{\n#{body.to_cpp}\n}"}"
-    binding.pry
+    #binding.pry
     x
   end
 end
@@ -520,4 +572,5 @@ class Parslet::Slice; def to_cpp(*); to_s end end
 class String; def to_cpp(*); self end end 
 class Symbol; def to_cpp(*); to_s end end
 class NilClass; def to_cpp(*); '' end end
-class Hash; def to_cpp(*); "/* Untransformed hash #{self.inspect}" end end
+class Hash; def to_cpp(*); 
+  "/* Untransformed hash #{ai multiline: true, plain: true} */" end end

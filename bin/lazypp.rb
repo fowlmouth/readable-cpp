@@ -37,7 +37,7 @@ module LazyPP
   class Package
     PackageDir = File.expand_path('~/.config/cpptranny/pkg')
     @packages = {}
-    attr_reader :includes, :linker
+    attr_reader :includes, :linker, :name
     def self.new name
       name = name.map(&:downcase).join(?/)
       @packages[name] ||= super(name)
@@ -48,23 +48,34 @@ module LazyPP
         dat = YAML.load_file f
         @includes = [*dat['include']]
         @linker   = dat['linker']
+        @name = name
       else
         raise Errno::ENOENT.new f
       end
     end
+
+    alias to_s name
   end
   class Program
     attr_reader :raw_tree, :tree
     def initialize 
       @p = Parser.new
       @pkgs = Set.new
+      @handlers, @settings = {}, {}
+      @handlers[AutoDecl] = proc { |i|
+        @settings['c++0x'] ||= (warn "** C++0x enabled"; true)
+      }
+      @handlers[ImportStmt] = proc { |stmt|
+        warn "** Package added: #{stmt.p.name}"
+        @pkgs.add stmt.p
+      }
     end
 
     def parse_file file
       @basefn = ::File.basename(file, '.lpp')
       @outname = @basefn + '.cpp'
       parse_str File.read(file)
-      clean
+      #clean
       self
     end
 
@@ -76,18 +87,15 @@ module LazyPP
       puts _.cause.ascii_tree
     end
 
-    def clean
-      return if @tree.nil?
-      @tree.each { |s| 
-        if s.is_a? ImportStmt
-          @pkgs.add s.p
-        end
-      }
+    def notify msg
+      @handlers[msg.class] ?
+        @handlers[msg.class].(msg) :
+        nil
     end
 
     def [](key); @tree[key] end 
 
-    def to_cpp; @tree.to_cpp end
+    def to_cpp; @tree.to_cpp(RenderState.new(program: self)) end
     def write build = false
       FileUtils.mkdir_p 'build'
       Dir.chdir 'build' do
@@ -101,7 +109,12 @@ module LazyPP
         if system 'chmod +x '<< buildscript
           system './' << buildscript if build
         end
-        puts ':-(' unless $?.success?
+
+        unless $?.success?
+          puts ':-(' 
+        else
+          puts 'Great success!'
+        end
       end
     end
     def buildscripts
@@ -109,7 +122,7 @@ module LazyPP
         p.linker or nil 
       }.compact.join' '
       "#!/bin/sh \n" \
-      "g++ -c #{@outname} &&\n" \
+      "g++ -c #{@outname} #{'-std=gnu++0x' if @settings['c++0x']} &&\n" \
       "g++ #{@basefn}.o -o #{@basefn} #{linker_opts} \n"
     end
   end
