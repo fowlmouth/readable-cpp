@@ -1,3 +1,10 @@
+class Array
+  def self.wrap x
+    x.is_a?(Array) ? x :
+    x.is_a?(Hash) ? [x] : [*x]
+  end
+end
+
 module LazyPP
 
 Transform = Parslet::Transform.new {
@@ -5,6 +12,7 @@ Transform = Parslet::Transform.new {
   rule(ident: simple(:i), generics: simple(:g)) {
     GenericIdent.new(i, g)
   }
+  rule(void: simple(:v)) { v.to_s }
 
   rule(stmts: sequence(:s)) {
     StmtList.new s
@@ -28,8 +36,17 @@ Transform = Parslet::Transform.new {
     binding.pry
     LangSection.new(l)
   }
-  rule(ident_def: subtree(:i)){
-    IdentDef.new(i[:name], i[:type], i[:default])
+  # rule(ident_def: subtree(:i)){
+  #   IdentDef.new(i[:name], i[:type], i[:default])
+  # }
+  rule(ident_def: {
+    names: sequence(:n), type: simple(:t)}) {
+    IdentDef.new n, t, nil
+  }
+  rule(ident_def: {
+    names: simple(:n), type: simple(:t),
+    default: simple(:d)  }) {
+    IdentDef.new n, t, d
   }
   rule(var_decl: {name: simple(:n), type: simple(:t)}) {
     VarDeclSimple.new(n, t, nil)
@@ -71,7 +88,8 @@ Transform = Parslet::Transform.new {
     name: simple(:name),
     sig: { args: subtree(:args), returns: subtree(:returns) },
     body: simple(:b)  }) {
-    OperDecl.new name, [args, returns], b
+    #OperDecl.new name, [args, returns],b
+    OperDecl.new name, args, returns, b
   }
   rule(func_decl: {
     name: simple(:name),
@@ -93,7 +111,7 @@ Transform = Parslet::Transform.new {
     ReturnStmt.new exp
   }
   rule(ctor_decl: subtree(:c)) {
-    CtorDecl.new(c[:args], c[:initializers], c[:body])
+    CtorDecl.new(c[:args], c[:initializers], c[:body], c[:name])
   }
   rule(prefix: simple(:p), expr: simple(:x)) {
     Expr.new(p.to_s, x, nil)
@@ -180,7 +198,11 @@ Transform = Parslet::Transform.new {
   rule(sq_bracket_expr: simple(:x)) {
     BracketExpr.new x
   }
+  rule(visibility_stmt: simple(:v)) {
+    Visibility.new v.to_s
+  }
 }
+
 class Node
   def self.new(*fields, &b)
     cls = Class.new(self)
@@ -188,7 +210,9 @@ class Node
     cls.class_eval <<-END
       attr_accessor #{fields.map {|f| ":#{f}"}.join ', '}
       def initialize(#{fff})
-        #{fields.map {|f| "@#{f}"}.join','} = #{fff}
+        #{fields.each_with_index.map { |field, index|
+            "self.#{field} = #{field}"
+          }.join ?;}
       end
       def self.new(*args)
         o = allocate
@@ -199,7 +223,7 @@ class Node
     cls.class_eval &b if b
     cls
   end
-  def to_cpp
+  def to_cpp(*)
     "//(Unimplemented to_cpp) #{inspect}"
   end
   def inspect
@@ -210,74 +234,102 @@ class Node
     }>"
   end
 end
+class RenderState
+  attr_reader :opts
+  def initialize opts={}
+    @opts = { 
+      indent: 0, parent: nil 
+    }.merge(opts.is_a?(RenderState) ? opts.opts : opts)
+
+  end
+  def parent=(p)
+    @opts[:parent] = p
+  end
+  def parent() @opts[:parent] end
+  def indent(by=1) 
+    RenderState.new(@opts.merge(indent: @opts[:indent]+by))
+  end
+  def indentation() '  '*@opts[:indent]  end
+end
+
 Conditional = Node.new(:kind, :condition, :body) do
-  def to_cpp
-    "#{kind}(#{condition.to_cpp}) {\n#{body.to_cpp}\n}"
+  def to_cpp(rs)
+    "#{rs.indentation}#{kind}(#{condition.to_cpp}) {\n#{body.to_cpp(rs.indent)}\n#{rs.indentation}}"
   end
 end
 ForStmt = Class.new(Conditional) do
-  def to_cpp
-    "for(#{last = condition[0].to_cpp}#{
+  def to_cpp(rs = RenderState.new)
+
+    "#{rs.indentation}for(#{last = condition[0].to_cpp}#{
       ';' unless last[-1] == ';'}#{condition[1].to_cpp};#{condition[2].to_cpp}) {\n#{
-      body.to_cpp}\n}"
+      body.to_cpp(rs.indent)}\n}"
   end
 end
 NamespaceIdent = Node.new(:names) do
-  def to_cpp; [*names].map(&:to_cpp).join '::' end
+  def to_cpp(*); [*names].map(&:to_cpp).join '::' end
 end
 DotName = Node.new(:name) do
-  def to_cpp; [*name].map { |n|
+  def to_cpp(*); [*name].map { |n|
     n.is_a?(Hash) ? n.values : n
   }.flatten.map(&:to_s).join end
 end
-
+Visibility = Node.new(:v) do
+  def to_cpp rs = RenderState.new()
+    raise "visiblity stmt only allowed in a class decl" \
+      unless rs.parent.is_a? ClassDecl
+    "#{v}:\n"
+  end
+end
 FuncCall = Node.new(:name, :args) do
-  def to_cpp
+  def to_cpp(*)
     name.to_cpp + '(' << (
       args != ?! && [*args].map(&:to_cpp).join(', ') || '') << ')'
   end
 end
 ExprStmt = Node.new(:expr) do
-  def to_cpp; expr.to_cpp + ';' end
+  def to_cpp(rs); rs.indentation + expr.to_cpp + ';' end
 end
 LangSection = Node.new(:txt) 
 AutoDecl = Node.new(:name, :val) do
-  def to_cpp
-    "auto #{name.to_cpp} = #{val.to_cpp};"
+  def to_cpp(rs)
+    "#{rs.indentation}auto #{name.to_cpp} = #{val.to_cpp};"
   end
 end
 ReturnStmt = Node.new(:expr) do
-  def to_cpp
-    "return #{expr.to_cpp};"
+  def to_cpp rs
+    "#{rs.indentation}return #{expr.to_cpp};"
   end
 end
 StmtList = Class.new(Array) do #Node.new(:stmts) do 
   #def [](key) stmts[key] end 
   def inspect
-    "<#{self.class} #{map { |s| s.inspect }.join(', ') }>"
+    "<#{self.class}(#{size}) #{map { |s| s.inspect }.join(', ') }>"
   end
-  def to_cpp
+  def to_cpp(rs = RenderState.new)
     #stmts.
-    map(&:to_cpp).join("\n")
+    #map(&:to_cpp).join("\n")
+    map { |s| s.to_cpp(rs) }.join"\n"
   end
   def at index; self[index] end
 end
 Type = Node.new(:base, :derived) do
+  attr_reader :constness
   def derived_cpp
     res = '%s'
-    constness = nil
     derived.each do |d|
       #sometimes const comes through as [:constness, 'const'].. shrug
       if d.is_a?(Array) then d = Hash[*d] end
       
       if d.has_key? :constness
-        constness = d[:constness].to_s
+        self.constness = d[:constness].to_s
       elsif d.has_key? :pointer
         res = "(*#{res})"
       elsif d.has_key? :array
         res = "(#{res}[])"
       elsif d.has_key? :size
         res = "(#{res}[#{d[:size].to_cpp}])"
+      elsif d.has_key? :ref
+        res = "(&#{res})"
       elsif d.has_key? :args
         #binding.pry
         res = "(#{res}(#{
@@ -286,14 +338,12 @@ Type = Node.new(:base, :derived) do
       end
     end unless derived == '' || derived == [''] ##this happens too, somehow ._.
 
-    unless constness.nil? 
-      constness << ' ' << res
-    else res end
+    res
   end
   def base_cpp
     [*base].map(&:to_cpp).join(' ')
   end
-  def to_cpp ##note to self: % format result with the name
+  def to_cpp(*) ##note to self: % format result with the name
     base_cpp << ' ' << derived_cpp
   end
 end
@@ -301,52 +351,60 @@ TypeDecl = Node.new(:name, :type)
 class ClassDecl < TypeDecl
   attr_accessor :body, :parents
   def initialize name, type, body, parents
-    @name, @type, @body, @parents = name, type, body, 
-      (parents.is_a?(Array) ? parents : [parents])
+    self.name = name
+    self.type = type
+    self.body = body
+    self.parents = parents
   end
-  def to_cpp
+  def parents= val
+    @parents = val.nil? ? val : Array.wrap(val)
+  end
+  def to_cpp(rs = RenderState.new())
+    rs.parent= self
     "class #{name} #{
       ": #{
         parents.map { |p| 
           "#{p[:vis].to_cpp} #{p[:parent].to_cpp}"
-        }.join', '}" unless parents.nil?} \n{\n#{body.to_cpp}\n};"
+        }.join', '}" unless parents.nil?} \n{\n#{
+        body.to_cpp(rs.indent) unless body.nil?
+      }\n};"
   end
 end
 Expr = Node.new(:prefix, :expr, :postfix) do
-  def to_cpp
+  def to_cpp(*)
     prefix.nil? && postfix.nil? ? 
     expr.to_cpp : 
     "(#{prefix.to_cpp}#{expr.to_cpp}#{postfix.to_cpp})"
   end
 end
 InfixExpr = Node.new(:left, :infix, :right) do
-  def to_cpp
+  def to_cpp(*)
     "#{left.to_cpp} #{infix.to_cpp} #{right.to_cpp}"
   end
 end
 BracketExpr = Node.new(:expr) do
-  def to_cpp
+  def to_cpp(*)
     "[#{expr.to_cpp}]"
   end
 end
 GenericIdent = Node.new(:ident, :generic) do
-  def to_cpp
+  def to_cpp(*)
     "#{ident.to_cpp}<#{[*generic].map(&:to_cpp).join', '}>"
   end
 end
 UnionType = Node.new(:members)
 EnumType = Node.new(:fields)
 VarDeclSimple = Node.new(:name, :type, :val) do
-  def to_cpp
+  def to_cpp(rs = RenderState.new())
     # res = type.to_cpp
     # [*names].map { |n| (res + ';') % n }.join('')
-    (type.to_cpp % name) << (val && " = #{val.to_cpp};" || ';')
+    rs.indentation + (type.to_cpp % name) + (val && " = #{val.to_cpp};" || ';')
   end
 end
 VarDeclInitializer = Node.new(:names, :type)do
-  def to_cpp
+  def to_cpp(rs = RenderState.new())
     derived = type.derived_cpp
-    type.base_cpp + ' ' + [*names].map { |n| 
+    rs.indentation + type.base_cpp + ' ' + [*names].map { |n| 
       name = derived % n.name
       if n.args.nil?
         name
@@ -358,7 +416,7 @@ VarDeclInitializer = Node.new(:names, :type)do
 end 
 ConstructorName = Node.new(:name, :args)
 IdentDef = Node.new(:names, :type, :default) do
-  def to_cpp ##test this
+  def to_cpp(*) ##test this
     t = type.to_cpp
     [*names].map { |n| 
       res = (t % n) 
@@ -373,62 +431,93 @@ ImportStmt = Node.new(:pkg) do
     @p = Package.new(pkg)
   end
 
-  def to_cpp 
+  def to_cpp(*) 
     @p.includes.map { |i|
       "#include #{i}\n"
     }.join('')
   end
 end
 StringLit = Node.new(:wchar, :str) do
-  def to_cpp; "#{?L if wchar}\"#{str}\"" end
+  def to_cpp(*); "#{?L if wchar}\"#{str}\"" end
 end
 IncludeStmt = Node.new(:file, :type) do
-  def to_cpp
+  def to_cpp(*)
     "#include " << (type == :std ? 
       '<' << file.to_s << '>' : 
       file.to_cpp)
   end
 end
 UsingStmt = Node.new(:name) do
-  def to_cpp
+  def to_cpp(*)
     "using #{name};"
   end
 end
 IntLiteral = Node.new(:value) do
-  def to_cpp; "#{value}" end
+  def to_cpp(*); "#{value}" end
 end
 CharLiteral = Node.new(:char) do
-  def to_cpp; "'#{char}'" end
+  def to_cpp(*); "'#{char}'" end
 end
 FloatLiteral = Node.new(:value, :type) do
-  def to_cpp
+  def to_cpp(*)
     "#{value}#{type}"
   end
 end
 
 Namespace = Node.new(:name, :body) do
-  def to_cpp
+  def to_cpp(*)
     "namespace #{name} {\n" << body.to_cpp << '}'
   end
 end
-CtorDecl = Node.new(:args, :initializers, :body) do
-  def initialize a,i,b
-    @args, @initializers, @body = [*a], i ? [*i] : nil, b
+CtorDecl = Node.new(:args, :initializers, :body, :name) do
+  def args= a; @args = Array.wrap a; end
+  def initializers= i; @initializers = Array.wrap i; end
+  def to_cpp rs
+    parent = rs.parent
+    "#{rs.indentation}#{name.nil? ?
+      parent.respond_to?(:name) ? 
+        parent.name : 
+        '/*constructor name missing and parent node has no name*/' :
+      name
+    }(#{args.map(&:to_cpp).join', '}) #{
+      ( ': ' +
+        initializers.map{|i|
+          i = i[:initializer]
+          r="#{i[:member].to_cpp}(#{[*i[:args]].map(&:to_cpp).join(', ')})"
+          #binding.pry
+          r
+        }.join(', ')
+      ) unless initializers.nil? 
+    } #{body.nil? ? ?; : "{\n#{body.to_cpp(rs.indent)}\n#{rs.indentation}}"}"
   end
 end
 FuncDecl = Node.new(:name, :args, :returns, :body) do
-  def to_cpp
-    (returns.to_cpp % name) << args.to_cpp << "{\n" << body.to_cpp <<
-    "\n}"
+  def to_cpp(rs)
+    # (returns.to_cpp % name) << args.to_cpp << "{\n" << body.to_cpp <<
+    # "\n}"
+
+    "#{rs.indentation}#{returns.to_cpp % name} (#{args.to_cpp}) #{
+      body.nil? ? 
+      ?; : 
+      "{\n#{body.to_cpp(rs.indent)}\n#{rs.indentation}}"}"
   end
 end
 class OperDecl < FuncDecl; end
-
+  def to_cpp parent
+    x="#{} operator #{
+      returns.base_cpp +
+      (returns.derived_cpp % (
+        (name.p =~ /implicit/i) ? '' : name))
+    }(#{args.to_cpp}) #{returns.constness} #{
+      body.nil? ? ?; : "{\n#{body.to_cpp}\n}"}"
+    binding.pry
+    x
+  end
 end
 
 
-class Parslet::Slice; def to_cpp; to_s end end
-class String; def to_cpp; self end end 
-class Symbol; def to_cpp; to_s end end
-class NilClass; def to_cpp; '' end end
-class Hash; def to_cpp; "/* Untransformed hash #{self.inspect}" end end
+class Parslet::Slice; def to_cpp(*); to_s end end
+class String; def to_cpp(*); self end end 
+class Symbol; def to_cpp(*); to_s end end
+class NilClass; def to_cpp(*); '' end end
+class Hash; def to_cpp(*); "/* Untransformed hash #{self.inspect}" end end

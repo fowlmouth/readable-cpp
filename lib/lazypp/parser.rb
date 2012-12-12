@@ -49,7 +49,7 @@ class Parser < Parslet::Parser
   rule(:ident) { (match['A-Za-z_'] >> match['A-Za-z0-9_'].repeat).as(:ident) }
   rule(:namespaced_ident) { join(ident, str('::'), 1).as(:namespace) }
   rule(:generic?) {
-    (str(?<) >> comma_list(ident).as(:generics) >> str(?>)).maybe
+    (str(?<) >> comma_list(namespaced_ident|ident).as(:generics) >> str(?>)).maybe
   }
   rule(:digit) do match['\d'] end
   rule(:int) { digit.repeat(1).as(:int) }
@@ -75,10 +75,10 @@ class Parser < Parslet::Parser
       derived_type.as(:derived).maybe >> space? >>
       ( union_decl.as(:union) | 
         enum_decl.as(:enum)   |
+        join(ident, space, 1) |
         join(
           (ident | namespaced_ident) >> generic?, 
-          str('::'), 0).as(:namespaced) | 
-        join(ident, space, 0)
+          str('::'), 0).as(:namespaced) 
       ).as(:base)
     ).as(:type)
   }
@@ -111,6 +111,9 @@ class Parser < Parslet::Parser
       #comma_list(ident.as(:name) >> parens(comma_list(expr).maybe).as(:constructor).maybe).as(:names) >> 
       #colon_is? >> type.as(:type) >> space? >> semicolon
     ).as(:var_decl)
+  }
+  rule(:class_visibility_decl) {
+    visibility.as(:visibility_stmt) >> space? >> colon >> eol
   }
   rule(:type_decl) {
     (
@@ -153,9 +156,12 @@ class Parser < Parslet::Parser
   rule(:ctor_decl) {
     (
       `ctor` >> colon_is? >>
-      parens(`void` | ident_defs).as(:args) >> space? >>
+      #parens(`void` | ident_defs).as(:args) >> space? >>
+      func_sig_args >> space? >>
       join(
-        (namespaced_ident|ident).as(:member) >> parens(join(expr.as(:args), space? >> comma >> space)),  #  expr.as(:initial_value)),
+        (
+          (namespaced_ident|ident).as(:member) >> parens(join(expr, space? >> comma >> space)).as(:args)
+        ).as(:initializer),  #  expr.as(:initial_value)),
         space? >> (comma >> space?).maybe
       ).maybe.as(:initializers) >> space? >>
       body.as(:body)
@@ -174,8 +180,13 @@ class Parser < Parslet::Parser
   rule(:oper_decl) {
     (
       `oper` >> space >> 
-      ((`pre` | `post`).as(:pos) >> space).maybe >>
-      operator.as(:name) >> colon_is? >>
+      (
+        `implicit`.as(:name) |
+        ((`pre`|`post`).as(:pos) >> space?).maybe >>
+          operator.as(:name)
+      ) >> colon_is? >> 
+      #((`pre` | `post`).as(:pos) >> space).maybe >>
+      #operator.as(:name) >> colon_is? >>
       func_sig.as(:sig) >> space? >> body.as(:body)
     ).as(:oper_decl)
   }
@@ -242,7 +253,7 @@ class Parser < Parslet::Parser
   }
   rule(:func_sig_args) {
     parens(
-      `void` |
+      `void`.as(:void) |
       ident_defs
     ).as(:args)
   }
@@ -315,7 +326,7 @@ class Parser < Parslet::Parser
 
   rule(:stmt) {
     var_decl | auto_decl | import_stmt | using_stmt | func_decl | 
-    return_stmt |
+    return_stmt | class_visibility_decl |
     namespace_decl | type_decl | ctor_decl | dtor_decl | oper_decl |
     conditional | lang_section | include_stmt |
     (expr.as(:expr_stmt) >> space? >> semicolon)

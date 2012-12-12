@@ -54,36 +54,40 @@ module LazyPP
     end
   end
   class Program
-    attr_reader :file, :tree
-    def initialize file
+    attr_reader :raw_tree, :tree
+    def initialize 
       @p = Parser.new
       @pkgs = Set.new
-      @fn = file
+    end
+
+    def parse_file file
       @basefn = ::File.basename(file, '.lpp')
       @outname = @basefn + '.cpp'
-      parse
+      parse_str File.read(file)
       clean
+      self
     end
-    def parse() @file, @tree = parse_str(File.read @fn) end
+
     def parse_str str
-      [Transform.apply(tree = @p.parse(str)), tree]
+      @raw_tree = @p.parse(str) 
+      @tree = Transform.apply @raw_tree
+      [@tree, @raw_tree]
     rescue Parslet::ParseFailed => _
       puts _.cause.ascii_tree
-      [nil, nil]
     end
 
     def clean
-      return if @file.nil?
-      @file.each { |s| 
+      return if @tree.nil?
+      @tree.each { |s| 
         if s.is_a? ImportStmt
           @pkgs.add s.p
         end
       }
     end
 
-    def [](key); @file[key] end 
+    def [](key); @tree[key] end 
 
-    def to_cpp; @file.to_cpp end
+    def to_cpp; @tree.to_cpp end
     def write build = false
       FileUtils.mkdir_p 'build'
       Dir.chdir 'build' do
@@ -93,8 +97,11 @@ module LazyPP
         open(buildscript = "build.#{@basefn}.sh", 'w+') do |f|
           f.puts buildscripts
         end
-        system 'chmod +x '<< buildscript
-        system './'<<buildscript if build
+
+        if system 'chmod +x '<< buildscript
+          system './' << buildscript if build
+        end
+        puts ':-(' unless $?.success?
       end
     end
     def buildscripts
@@ -128,9 +135,21 @@ Usage:
   opt :b, "build", default: false
   opt :r, "run", default: false
   opt :P, "start a pry session", default: false
+  opt :S, "parse a string", type: :string
 }
-Trollop.die :f, "File argument (-f) is required" unless opts[:f]
-Trollop.die :f, "File does not exist" unless File.exist?(opts[:f])
+
+p = LazyPP::Program.new
+res = nil
+
+unless opts[:S].nil?
+  res = p.parse_str(opts[:S])
+  if res
+    if opts[:p]; puts p.to_cpp; end
+  end
+else
+  Trollop.die :f, "File argument (-f) is required" unless opts[:f] 
+  Trollop.die :f, "File does not exist" unless File.exist?(opts[:f]) 
+end
 
 if not File.exist?(LazyPP::Package::PackageDir) ||
   (realdir = File.realdirpath(LazyPP::Package::PackageDir)) &&
@@ -139,13 +158,14 @@ if not File.exist?(LazyPP::Package::PackageDir) ||
   binding.pry
 end
 
+if opts[:f]
+  res ||= p.parse_file(opts[:f])
 
-p = LazyPP::Program.new opts[:f]
+  unless res; abort; end
+  ap p.tree if opts[:t]
+  puts p.to_cpp,"\n\n" if opts[:p]
 
-ap p.tree if opts[:t]
-puts p.to_cpp,"\n\n" if opts[:p]
-
-p.write(opts[:b]) if opts[:w] || opts[:b]
-
+  p.write(opts[:b]) if opts[:w] || opts[:b]
+end
 
 binding.pry if opts[:P]
