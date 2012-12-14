@@ -12,12 +12,17 @@ class Parser < Parslet::Parser
     l_paren >> space? >> rule >> space? >> r_paren |
     space >> rule
   end
+  def parens(rule)
+    l_paren >> space? >> rule >> space? >> r_paren
+  end
   def parens?(rule)
-    (l_paren >> space? >> rule >> space? >> r_paren) |
-    rule
+    parents(rule) | rule
+  end
+  def paren_tagged(rule, tag=:parens)
+    parens(rule.as(tag))
   end
   def paren_tagged?(rule, tag)
-    (l_paren >> space? >> rule.as(tag) >> space? >> r_paren) |
+    paren_tagged(rule,tag) |
     rule
   end
 
@@ -70,6 +75,7 @@ class Parser < Parslet::Parser
   }
 
   rule(:derived_type) {
+    (`static`.as(:static) >> space).maybe >>
     ((`const` | `mutable`).as(:constness) >> space).maybe >>
     ((
       str('^').as(:pointer) |
@@ -149,7 +155,7 @@ class Parser < Parslet::Parser
   rule(:using_stmt) {
     (
       `using` >> space >> (`namespace`.as(:ns) >> space).maybe >>
-      ident.as(:using_namespace) >>
+      (namespaced_ident | ident).as(:using_namespace) >>
       (eol | space? >> semicolon)
     ).as(:using_stmt)
   }
@@ -164,7 +170,7 @@ class Parser < Parslet::Parser
   }
   rule(:ctor_decl) {
     (
-      `ctor` >> colon_is? >>
+      `ctor` >> (space >> (namespaced_ident|ident).as(:name)).maybe >> colon_is? >>
       #parens(`void` | ident_defs).as(:args) >> space? >>
       func_sig_args >> space? >>
       join(
@@ -275,6 +281,9 @@ class Parser < Parslet::Parser
   rule(:dot_ident) {
     join(ident, access.as(:access)).as(:dot_ident)
   }
+  rule(:dot_expr) {
+    join(expr.as(:expr), access.as(:access)).as(:dot_expr)
+  }
   rule(:func_call_new) {
       (
         str(?!) | 
@@ -329,19 +338,37 @@ class Parser < Parslet::Parser
   rule(:ident_defs) {
     join(ident_def, spaced?(comma|semicolon))
   }
-  rule(:expr) {
-      (
-        (operator_prefix.as(:op) >> space?).as(:prefix).maybe >>
-        paren_tagged?(
-          float | int | string | char | cast | 
-          namespaced_ident | dot_ident , :parens
-        ).as(:expr) >>
-        (operator_postfix | sq_bracket_expr).as(:op).as(:postfix).maybe |
-        parens(expr).as(:parens)
-      ) >> (func_call_new.maybe) >>
-      (space? >> operator.as(:infix) >> space? >> expr.as(:right)).maybe
-    
+  rule(:base_expr) {
+    (operator_prefix.as(:op) >> space?).as(:prefix).maybe >>
+    (
+      float | int | string | char | cast | namespaced_ident | 
+      dot_ident | l_paren.present? >> paren_tagged?(base_expr, :parens)
+    ).as(:expr) >>
+    (operator_postfix | sq_bracket_expr).as(:op).as(:postfix).maybe >>
+    ((space? >> operator).absent? >> func_call_new).maybe >> 
+    (space? >> operator.as(:infix) >> space? >> expr.as(:right)).maybe
   }
+  rule(:expr) {
+    paren_tagged?(base_expr.as(:expr), :parens)
+  }
+  # rule(:expr) {
+  #   (operator_prefix.as(:op) >> space?).as(:prefix).maybe
+  #   parens_save?(float | int | string | char | cast | )
+
+  # }
+  # rule(:expr) {
+  #     (
+  #       (operator_prefix.as(:op) >> space?).as(:prefix).maybe >>
+  #       paren_tagged?(
+  #         float | int | string | char | cast | 
+  #         namespaced_ident | dot_ident, :parens
+  #       ).as(:expr) >>
+  #       (operator_postfix | sq_bracket_expr).as(:op).as(:postfix).maybe |
+  #       parens(expr).as(:parens)
+  #     ) >> (func_call_new.maybe) >>
+  #     (space? >> operator.as(:infix) >> space? >> expr.as(:right)).maybe
+    
+  # }
   rule(:sq_bracket_expr) {
     (
       str(?[) >> space? >> expr >> space? >> str(?])
@@ -357,7 +384,8 @@ class Parser < Parslet::Parser
     return_stmt | class_visibility_decl |
     namespace_decl | type_decl | ctor_decl | dtor_decl | oper_decl |
     conditional | lang_section | include_stmt |
-    (expr.as(:expr_stmt) >> space? >> semicolon)
+    (dot_expr.as(:expr_stmt) >> space? >> semicolon)
+    #(expr.as(:expr_stmt) >> space? >> semicolon)
   }
   rule(:body) {
     brackets(program.maybe)
