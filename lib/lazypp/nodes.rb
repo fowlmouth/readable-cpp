@@ -575,7 +575,7 @@ CaseStmt = Node.new(:exprs, :body) do
     i = rs.indentation
     (exprs == :default ? 
       i+"default:\n" : 
-      exprs.p.map { |x| i+"case #{x.to_cpp}:\n"}.join('')
+      exprs.map { |x| i+"case #{x.to_cpp}:\n"}.join('')
     ) + 
     body.to_cpp(rs.indent) +
     "\n#{rs.indent.indentation}break;"

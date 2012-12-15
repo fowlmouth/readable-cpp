@@ -264,7 +264,7 @@ class Parser < Parslet::Parser
   }
   rule(:func_sig_args_anon) {
     parens(
-      `void` | 
+      `void`.as(:void) | 
       `any`  | 
       comma_list(type) 
     ).as(:args)
