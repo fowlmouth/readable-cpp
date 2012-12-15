@@ -5,6 +5,9 @@ class Parser < Parslet::Parser
   def brackets(rule) 
     l_bracket >> space? >> rule >> space? >> r_bracket
   end
+  def brackets?(rule)
+    brackets(rule) | rule
+  end
   def spaced?(rule)
     space? >> rule >> space?
   end
@@ -189,7 +192,7 @@ class Parser < Parslet::Parser
   rule(:func_decl) {
     (
       `func` >> space >> ident.as(:name) >> colon_is? >>
-      func_sig.as(:sig) >> space? >> body.as(:body)
+      func_sig.as(:sig) >> space? >> (body.as(:body) | semicolon)
     ).as(:func_decl)
   }
   rule(:oper_decl) {
@@ -339,36 +342,18 @@ class Parser < Parslet::Parser
     join(ident_def, spaced?(comma|semicolon))
   }
   rule(:base_expr) {
-    (operator_prefix.as(:op) >> space?).as(:prefix).maybe >>
+    (operator_prefix.as(:op) >> space?).maybe.as(:prefix) >>
     (
       float | int | string | char | cast | namespaced_ident | 
       dot_ident | l_paren.present? >> paren_tagged?(base_expr, :parens)
     ).as(:expr) >>
-    (operator_postfix | sq_bracket_expr).as(:op).as(:postfix).maybe >>
+    (operator_postfix | sq_bracket_expr).as(:op).maybe.as(:postfix) >>
     ((space? >> operator).absent? >> func_call_new).maybe >> 
     (space? >> operator.as(:infix) >> space? >> expr.as(:right)).maybe
   }
   rule(:expr) {
     paren_tagged?(base_expr.as(:expr), :parens)
   }
-  # rule(:expr) {
-  #   (operator_prefix.as(:op) >> space?).as(:prefix).maybe
-  #   parens_save?(float | int | string | char | cast | )
-
-  # }
-  # rule(:expr) {
-  #     (
-  #       (operator_prefix.as(:op) >> space?).as(:prefix).maybe >>
-  #       paren_tagged?(
-  #         float | int | string | char | cast | 
-  #         namespaced_ident | dot_ident, :parens
-  #       ).as(:expr) >>
-  #       (operator_postfix | sq_bracket_expr).as(:op).as(:postfix).maybe |
-  #       parens(expr).as(:parens)
-  #     ) >> (func_call_new.maybe) >>
-  #     (space? >> operator.as(:infix) >> space? >> expr.as(:right)).maybe
-    
-  # }
   rule(:sq_bracket_expr) {
     (
       str(?[) >> space? >> expr >> space? >> str(?])
@@ -379,9 +364,21 @@ class Parser < Parslet::Parser
     parens(expr)
   }
 
+  rule(:switch_stmt) {
+    (
+      `switch` >> space >> expr.as(:expr) >> space? >> 
+      brackets(
+        (
+          (`case` >> space >> comma_list(expr) | `default`).as(:case_) >> space?>>colon>>
+          brackets?(program.as(:body)) >> space?
+        ).repeat(1)
+      ).as(:cases)
+    ).as(:switch_stmt)
+  }
+
   rule(:stmt) {
     var_decl | auto_decl | import_stmt | using_stmt | func_decl | 
-    return_stmt | class_visibility_decl |
+    return_stmt | class_visibility_decl | switch_stmt |
     namespace_decl | type_decl | ctor_decl | dtor_decl | oper_decl |
     conditional | lang_section | include_stmt |
     (dot_expr.as(:expr_stmt) >> space? >> semicolon)

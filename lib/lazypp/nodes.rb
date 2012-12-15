@@ -92,6 +92,18 @@ Transform = Parslet::Transform.new {
   rule(var_decl: {names: subtree(:n), type: simple(:t)}) {
     VarDeclInitializer.new n, t
   }
+  rule(case_: 'default', body: sequence(:b)) {
+    CaseStmt.new :default, b
+  }
+  rule(case_: simple(:c), body: sequence(:b)) {
+    CaseStmt.new [c], b
+  }
+  rule(case_: sequence(:c), body: sequence(:b)) {
+    CaseStmt.new c, b
+  }
+  rule(switch_stmt: {expr: simple(:x), cases: sequence(:cases)}) {
+    SwitchStmt.new x, cases
+  }
   rule(name: simple(:n), constructor: subtree(:c)) {
     ConstructorName.new n, c
   }
@@ -132,6 +144,11 @@ Transform = Parslet::Transform.new {
     body: simple(:b) }) {
     FuncDecl.new name, args, returns, b
   }
+  rule(func_decl: {
+    name: simple(:name),
+    sig: { args: subtree(:args), returns: subtree(:returns) }}) {
+    FuncDecl.new name, args, returns, nil
+  }
   rule(op: simple(:o)) { o.is_a?(Parslet::Slice) ? o.to_s.intern : o }
   rule(float: simple(:f), type: simple(:t)) {
     FloatLiteral.new(f, t)
@@ -154,14 +171,15 @@ Transform = Parslet::Transform.new {
   rule(parens: simple(:x), args: simple(:a)) {
     FuncCall.new ParenExpr.new(x), a
   }
-  rule(prefix: simple(:p), expr: simple(:x)) {
-    Expr.new(p.to_s, x, nil)
+  rule(prefix: simple(:p), expr: simple(:x), postfix: simple(:pp)) {
+    Expr.new(p, x, pp)
   }
-  rule(prefix: simple(:p), expr: simple(:x), args: subtree(:a)) {
+  rule(prefix: simple(:p), expr: simple(:x), postfix: simple(:pp), 
+    args: subtree(:a)) {
     FuncCall.new(Expr.new(p, x, nil), a)
   }
-  rule(prefix: simple(:p), expr: simple(:x), args: subtree(:a),
-    infix: simple(:i), right: simple(:x2)) {
+  rule(prefix: simple(:p), expr: simple(:x), postfix: simple(:pp),
+    args: subtree(:a),    infix: simple(:i), right: simple(:x2)) {
     InfixExpr.new FuncCall.new(Expr.new(p, x, nil), a), i.to_s.intern, x2
   }
   rule(expr: simple(:x), args: subtree(:a), infix: simple(:i), right: simple(:r)) {
@@ -449,11 +467,20 @@ Type = Node.new(:base, :derived) do
   attr_accessor :constness, :static
   def derived= val; @derived = Array.wrap val; end
   def base= val; @base = Array.wrap val; end
+  def derived_simple
+    derived_cpp
+    res = '%s'
+    derived.map { |h| 
+      ((h[:pointer] && '*') || (h[:ref] && '&') || nil) rescue binding.pry
+    }.each { |d| 
+      res.prepend d if d
+    } unless derived == ['']
+    res
+  end
   def derived_cpp
     @derived_cpp ||= (
     res = '%s'
     derived.each do |d|
-      #sometimes const comes through as [:constness, 'const'].. shrug
       if d.is_a?(Array) then d = Hash[*d] end
       
       if d.has_key? :constness
@@ -543,6 +570,24 @@ end
 ParenExpr = Node.new(:expr) do
   def to_cpp(*) "(#{expr.to_cpp})" end
 end
+CaseStmt = Node.new(:exprs, :body) do
+  def to_cpp(rs)
+    i = rs.indentation
+    (exprs == :default ? 
+      i+"default:\n" : 
+      exprs.p.map { |x| i+"case #{x.to_cpp}:\n"}.join('')
+    ) + 
+    body.to_cpp(rs.indent) +
+    "\n#{rs.indent.indentation}break;"
+  end
+end
+SwitchStmt = Node.new(:expr, :body) do
+  def to_cpp(rs)
+    "#{rs.indentation}switch(#{expr.to_cpp}) {\n" +
+    body.map { |s| s.to_cpp(rs) }.join("\n") +
+    "\n#{rs.indentation}}"
+  end
+end
 InfixExpr = Node.new(:left, :infix, :right) do
   def to_cpp(*)
     #binding.pry
@@ -613,7 +658,7 @@ ImportStmt = Node.new(:pkg) do
   def to_cpp(rs)
     @p.includes.map { |i|
       "#include #{i}\n"
-    }.join('')
+    }.join('') unless @p.includes.nil?
   end
 end
 require'forwardable'
@@ -693,18 +738,19 @@ CtorDecl = Node.new(:args, :initializers, :body, :name) do
   end
 end
 FuncDecl = Node.new(:name, :args, :returns, :body) do
+  def args= val; @args = Array.wrap val; end
   def scan(*args) body.scan(*args) end
   def to_cpp(rs)
     #"#{rs.indentation}#{rs.parent && "#{rs.parent.name.to_cpp}::"}#{returns.to_cpp % name} (#{args.to_cpp}) \n"\
-    "#{rs.indentation}#{returns.base_cpp} #{rs.parent && rs.parent.name.to_cpp+'::'}#{returns.derived_cpp % name}"\
-    "(#{args.to_cpp})\n"\
+    "#{rs.indentation}#{returns.base_cpp} #{rs.parent && rs.parent.name.to_cpp+'::'}#{returns.derived_simple % name}"\
+    "(#{args.map(&:to_cpp).join', '})\n"\
     "#{rs.indentation}{\n#{
       body.to_cpp(rs.indent) }\n"\
     "#{rs.indentation}}"
   end
   def to_hpp(rs)
-    "#{rs.indentation}#{returns.base_cpp} #{returns.derived_cpp % name}"\
-    "(#{args.to_hpp});"
+    "#{rs.indentation}#{returns.base_cpp} #{returns.derived_simple % name}"\
+    "(#{args.map(&:to_hpp).join', '});" rescue binding.pry
   end
 end
 class OperDecl < FuncDecl; end
@@ -713,7 +759,7 @@ class OperDecl < FuncDecl; end
       returns.base_cpp +
       (returns.derived_cpp % (
         (name.p =~ /implicit/i) ? '' : name))
-    }(#{args.to_cpp}) #{returns.constness} #{
+    }(#{args.map(&:to_cpp)}) #{returns.constness} #{
       body.nil? ? ?; : "{\n#{body.to_cpp}\n}"}"
     #binding.pry
     x

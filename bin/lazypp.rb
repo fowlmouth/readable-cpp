@@ -53,18 +53,88 @@ module LazyPP
     end
 
     def initialize name
-      if File.exists?(f = File.join(PackageDir, name)<<'.yml')
+      if f = find_pkg( name)
+        #if File.exists?(f = File.join(PackageDir, name)<<'.yml')
+        puts "Loading #{f}"
         dat = YAML.load_file f
-        @includes = [*dat['include']]
+        @includes = dat['include'].nil? ? nil : Array.wrap(dat['include'])
         @linker   = dat['linker']
-        @name = name
+        @name     = name
+        @flags = Array.wrap(dat['flags'] || nil).compact
       else
         raise Errno::ENOENT.new f
       end
     end
 
+    def cpp0x?() @flags.include?('c++0x') || @flags.include?('cpp0x') end
+
+    def find_pkg name
+      n = name.p + '.yml'
+      [ File.join(PackageDir,n), File.join(Dir.pwd,n)
+      ].detect(&File.method(:exists?)) 
+    end
+
     alias to_s name
   end
+
+  Unit = Class.new(Struct.new(:program, :file, :contents, :tree, :raw_tree, :time)) do
+    attr_accessor :cpp
+    def initialize prog, file, opts={}
+      super prog, file, nil, nil, nil, nil
+      @read,@scanned = false,false
+      @opts={gen_header: false, build: true}.merge opts
+    end
+    def gen_header; @opts[:gen_header] end 
+    def gen_header= val; @opts[:gen_header]= val end
+    def build?; @opts[:build] end 
+    def read
+      return if @read
+      warn "reading "+file
+      self.contents = File.read(file)
+      if t = program.parse_str(self.contents)
+        self.tree = t[0]
+        self.raw_tree = t[1]
+      else
+        self.tree, self.raw_tree=nil, nil
+      end
+      self.time = Time.now
+      @read = true
+    end
+    def outname
+      basename + '.cpp'
+    end
+    def scan
+      return if @scanned
+      warn "scanning "+file
+      tree && tree.scan(program)
+      @scanned = true
+    end
+    def basename
+      File.basename(file, '.lpp')
+    end
+    def write
+      if gen_header
+        warn "writing "+(n= basename+'.hpp')
+        open(n, 'w+') do |f|
+          f.puts "#pragma once"
+          # f.puts "#ifndef __HEADER_#{basename}"
+          # f.puts "#define __HEADER_#{basename}"
+          f.puts to_hpp(RenderState.new(program: program, gen_header: gen_header))
+          # f.puts "#endif"
+        end
+      end
+      warn 'writing '+outname
+      open(outname, 'w+') do |f| 
+        if gen_header
+          f.puts "#include \"#{basename+'.hpp'}\""
+        end
+        f.puts to_cpp(RenderState.new(program: program, gen_header: gen_header))
+      end
+    end
+    def to_cpp(*args); @cpp ||= tree.to_cpp(*args) end
+    def to_hpp(*args); @hpp ||= tree.to_hpp(*args) end
+  end
+
   class Program
     attr_reader :raw_tree, :tree,:files
     def initialize opts={}
@@ -95,60 +165,7 @@ module LazyPP
     end
 
     def set_cpp0x; @settings['c++0x'] ||= (warn "** C++0x enabled"; true) end
-
-    Unit = Class.new(Struct.new(:program, :file, :contents, :tree, :raw_tree, :time)) do
-      attr_accessor :cpp
-      def initialize prog, file, opts={}
-        super prog, file, nil, nil, nil, nil
-        @read,@scanned = false,false
-        @opts={gen_header: false, build: true}.merge opts
-      end
-      def gen_header; @opts[:gen_header] end 
-      def gen_header= val; @opts[:gen_header]= val end
-      def build?; @opts[:build] end 
-      def read
-        return if @read
-        warn "reading "+file
-        self.contents = File.read(file)
-        if t = program.parse_str(self.contents)
-          self.tree = t[0]
-          self.raw_tree = t[1]
-        else
-          self.tree, self.raw_tree=nil, nil
-        end
-        self.time = Time.now
-        @read = true
-      end
-      def outname
-        basename + '.cpp'
-      end
-      def scan
-        return if @scanned
-        warn "scanning "+file
-        tree && tree.scan(program)
-        @scanned = true
-      end
-      def basename
-        File.basename(file, '.lpp')
-      end
-      def write
-        if gen_header
-          warn "writing "+basename+'.hpp'
-          open(basename+'.hpp', 'w+') do |f|
-            f.puts to_hpp(RenderState.new(program: program, gen_header: gen_header))
-          end
-        end
-        warn 'writing '+outname
-        open(outname, 'w+') do |f| 
-          if gen_header
-            f.puts "#include \"#{basename+'.hpp'}\""
-          end
-          f.puts to_cpp(RenderState.new(program: program, gen_header: gen_header))
-        end
-      end
-      def to_cpp(*args); @cpp ||= tree.to_cpp(*args) end
-      def to_hpp(*args); @hpp ||= tree.to_hpp(*args) end
-    end
+    def cpp0x?; @settings['c++0x'] end
 
     def add_file file, opts={}
       unless f =(@files[file] || @scheduled[file])
@@ -207,19 +224,20 @@ module LazyPP
     end
     
     def write build = false
+      return if @files.any? {|f, u| u.tree.nil?}
+      set_cpp0x if @pkgs.any? { |p| p.cpp0x? }
       FileUtils.mkdir_p 'build'
       Dir.chdir 'build' do
-        #binding.pry
-        # open(@outname, 'w+') do |f| 
-        #   f.puts to_cpp
-        # end
         @files.each_value {|u| u.write }
         open(buildscript = "build.#{@files[@files.keys.first].basename}.sh", 'w+') do |f|
           f.puts buildscripts
         end
 
         if system 'chmod +x '<< buildscript
-          system './' << buildscript if build
+          if build
+            warn 'building..'
+            system './' << buildscript
+          end
         end
 
         unless $?.success?
@@ -230,18 +248,18 @@ module LazyPP
       end
     end
     def buildscripts
-      objs = @files.map{|k,v| v.basename + '.o' }
+      #objs = @files.map{|k,v| v.basename + '.o' }
       cpps = @files.map{|k,v| v.outname }
       linker_opts = @pkgs.map { |p| 
         p.linker or nil 
       }.compact.join' '
       compile_opts = @settings['c++0x'] ? '-std=gnu++0x' : nil
 
-      "#!/bin/sh \n" +
-      cpps.map{|f|"g++ -c #{f} #{compile_opts} &&\n"}.join +
-      #{}"g++ -c #{@outname} #{'-std=gnu++0x' if @settings['c++0x']} &&\n" \
-      "g++ #{objs.join ' '} -o #{@files.first[1].basename} #{linker_opts} \n"
-      #{}"g++ #{@basefn}.o -o #{@basefn} #{linker_opts} \n"
+      # "#!/bin/sh \n" +
+      # cpps.map{|f|"g++ -c #{f} #{compile_opts} &&\n"}.join +
+      # "g++ #{objs.join ' '} -o #{@files.first[1].basename} #{linker_opts} \n"
+      "#!/bin/sh\n" \
+      "g++ -o #{@files.first[1].basename} #{compile_opts} #{cpps.join' '} #{linker_opts}\n"
     end
   end
 end
@@ -281,7 +299,7 @@ unless opts[:S].nil?
     if opts[:p]; puts p.to_cpp; end
   end
 else
-  if not opts[:W]
+  if not opts[:W] and not opts[:P]
     Trollop.die :f, "File argument (-f) is required" unless opts[:f] 
     Trollop.die :f, "File does not exist" unless File.exist?(opts[:f]) 
   end
@@ -305,7 +323,9 @@ if opts[:W] #TODO something with this
       end
     elsif f =~ /\.lpp/
       files << f
-      i.watch path, :create, :delete, :moved_to, :modify {|event|}
+      i.watch(path, :create, :delete, :moved_to, :modify) {|event|
+
+      }
     end
   }
   ( puts "Watching #{files.size} files (#{files.join', '})"
