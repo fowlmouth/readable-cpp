@@ -85,7 +85,7 @@ class Parser < Parslet::Parser
       str('[]').as(:array)  |
       str('&').as(:ref)     |
       str(?[) >> expr.as(:size) >> str(?]) |
-      func_sig_args_anon >> space? >> str('->')
+      func_sig_args >> space? >> str('->')
     ) >> space?).repeat
   }
   rule(:type) {
@@ -189,12 +189,6 @@ class Parser < Parslet::Parser
     `dtor` >> space? >> (colon >> space?).maybe >>
     body
   }
-  rule(:func_decl) {
-    (
-      `func` >> space >> ident.as(:name) >> colon_is? >>
-      func_sig.as(:sig) >> space? >> (body.as(:body) | semicolon)
-    ).as(:func_decl)
-  }
   rule(:oper_decl) {
     (
       `oper` >> space >> 
@@ -258,6 +252,18 @@ class Parser < Parslet::Parser
     `public` | `private` | `protected`
   }
 
+
+  rule(:func_decl) {
+    (
+      `func` >> space >> ident.as(:name) >> colon_is? >>
+      func_sig_nosave.present? >> type.as(:sig) >>
+      space? >> (body.as(:body) | semicolon)
+    ).as(:func_decl)
+  }
+  rule(:func_sig_nosave) { ##func_sig.present? didnt work, but this does..
+    parens(`void` | `any` | ident_defs | comma_list(type)) >>
+    spaced?(str('->')) >> type
+  }
   rule(:func_sig) {
     func_sig_args >> space? >> 
     str('->') >> space? >> type.as(:returns)
@@ -272,7 +278,9 @@ class Parser < Parslet::Parser
   rule(:func_sig_args) {
     parens(
       `void`.as(:void) |
-      ident_defs
+      `any`.as(:any)   |
+      ident_defs       |
+      comma_list(type) 
     ).as(:args)
   }
 

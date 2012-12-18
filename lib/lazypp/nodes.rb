@@ -140,15 +140,22 @@ Transform = Parslet::Transform.new {
   }
   rule(func_decl: {
     name: simple(:name),
-    sig: { args: subtree(:args), returns: subtree(:returns) },
-    body: simple(:b) }) {
-    FuncDecl.new name, args, returns, b
-  }
+    sig: simple(:sig)  }) { FuncDecl.new name, sig, nil }
   rule(func_decl: {
-    name: simple(:name),
-    sig: { args: subtree(:args), returns: subtree(:returns) }}) {
-    FuncDecl.new name, args, returns, nil
+    name: simple(:name), sig: simple(:sig), body: simple(:b)}){
+    FuncDecl.new name, sig, b
   }
+  # rule(func_decl: {
+  #   name: simple(:name),
+  #   sig: { args: subtree(:args), returns: subtree(:returns) },
+  #   body: simple(:b) }) {
+  #   FuncDecl.new name, args, returns, b
+  # }
+  # rule(func_decl: {
+  #   name: simple(:name),
+  #   sig: { args: subtree(:args), returns: subtree(:returns) }}) {
+  #   FuncDecl.new name, args, returns, nil
+  # }
   rule(op: simple(:o)) { o.is_a?(Parslet::Slice) ? o.to_s.intern : o }
   rule(float: simple(:f), type: simple(:t)) {
     FloatLiteral.new(f, t)
@@ -466,7 +473,9 @@ StmtList = Class.new(Array) do #Node.new(:stmts) do
 end
 Type = Node.new(:base, :derived) do
   attr_accessor :constness, :static
-  def derived= val; @derived = Array.wrap val; end
+  def derived= val
+    @derived = (val == ['']) ? nil : Array.wrap(val) 
+  end
   def base= val; @base = Array.wrap val; end
   def derived_simple
     derived_cpp
@@ -475,7 +484,31 @@ Type = Node.new(:base, :derived) do
       ((h[:pointer] && '*') || (h[:ref] && '&') || nil) rescue binding.pry
     }.each { |d| 
       res.prepend d if d
-    } unless derived == ['']
+    } unless derived.nil?
+    res
+  end
+  def derived_better
+    res = '%s'
+    left = false
+    derived.each do |d|
+      if d.has_key? :constness; self.constness = d[:constness].to_s
+      elsif d.has_key? :static; self.static = d[:static].to_s
+      elsif d.has_key? :pointer
+        res = "*#{res}"
+        left = true
+      elsif d.has_key? :ref
+        res = "&#{res}"
+        left = true
+      elsif d.has_key?(:size) || d.has_key?(:array)
+        n = "[#{d[:size] && d[:size].to_cpp}]"
+        res = if left; left = false; "(#{res})#{n}"
+              else; "#{res}#{n}" end
+      elsif d.has_key? :args
+        n = "(#{[*d[:args]].map { |a| a.to_cpp % '' }.join', '})"
+        res = if left; left = false; "(#{res})#{n}"
+              else; "#{res}#{n}" end
+      end
+    end unless derived.nil?# == ['']
     res
   end
   def derived_cpp
@@ -502,7 +535,7 @@ Type = Node.new(:base, :derived) do
           [*d[:args]].map {|a| a.to_cpp % ''}.join', '
         }))"
       end
-    end unless derived == '' || derived == [''] ##this happens too, somehow ._.
+    end unless derived.nil? #derived == '' || derived == [''] ##this happens too, somehow ._.
 
     res )
   end
@@ -620,7 +653,7 @@ VarDeclSimple = Node.new(:name, :type, :val) do
   def to_cpp(rs = RenderState.new())
     # res = type.to_cpp
     # [*names].map { |n| (res + ';') % n }.join('')
-    rs.indentation + (type.base_cpp % '') + ' ' + (type.derived_cpp%name) + 
+    rs.indentation + (type.base_cpp % '') + ' ' + (type.derived_better%name) + 
       (val && " = #{val.to_cpp};" || ';')
   end
 end
@@ -745,21 +778,22 @@ CtorDecl = Node.new(:args, :initializers, :body, :name) do
     }(#{args.map(&:to_cpp).join', '});"
   end
 end
-FuncDecl = Node.new(:name, :args, :returns, :body) do
-  def args= val; @args = Array.wrap val; end
+FuncDecl = Node.new(:name, :sig, :body) do
+  #def args= val; @args = Array.wrap val; end
   def scan(*args) body.scan(*args) end
   def to_cpp(rs)
     ## more info on functions returning functions and such at http://www.newty.de/fpt/fpt.html
-
-    "#{rs.indentation}#{returns.base_cpp} #{rs.parent && rs.parent.name.to_cpp+'::'}#{returns.derived_cpp % name}"\
-    "(#{args.map(&:to_cpp).join', '})\n"\
+    
+    "#{rs.indentation}#{sig.base_cpp} #{rs.parent && rs.parent.name.to_cpp+'::'}#{sig.derived_better % name}\n"+
+    #"(#{args.map(&:to_cpp).join', '})\n"\
     "#{rs.indentation}{\n#{
       body.to_cpp(rs.indent) }\n"\
     "#{rs.indentation}}"
   end
   def to_hpp(rs)
-    "#{rs.indentation}#{returns.base_cpp} #{returns.derived_simple % name}"\
-    "(#{args.map(&:to_hpp).join', '});" rescue binding.pry
+    "#{rs.indentation}#{sig.base_cpp} #{sig.derived_better % name};"\
+    #"(#{args.map(&:to_hpp).join', '});" 
+    rescue binding.pry
   end
 end
 class OperDecl < FuncDecl; end

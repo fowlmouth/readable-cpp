@@ -1,0 +1,16 @@
+include <iostream>
+func bar is (x: int) -> int
+{
+	return x + 42;
+}
+
+func foo is (void) -> ^(int) -> int
+{
+	return &bar;
+}
+
+func main is (void) -> int
+{
+	var f is ^(int)->int = foo!;
+	std::cout << f(100-42) << std::endl;
+}

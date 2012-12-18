@@ -59,15 +59,14 @@ module LazyPP
   end
 
   class Program
-    attr_reader :raw_tree, :tree,:files
-    attr_reader :build_dir
+    attr_reader :raw_tree, :tree,:files, :parser, :build_dir
     def initialize opts={}
       opts = {dir: Dir.pwd}.merge opts
       @working_dir = opts[:dir]
       puts @working_dir
-      @p = Parser.new
+      @parser = Parser.new
       @pkgs = Set.new
-      @handlers, @settings, @files = {}, {}, {}
+      @handlers, @settings, @files, @scheduled = {}, {}, {}, {}
       @build_dir = 'build'
       @handlers[ImportStmt] = proc { |stmt|
         warn "** Package added: #{stmt.p.name}" unless @pkgs.include?(stmt.p)
@@ -86,7 +85,6 @@ module LazyPP
           end
         end
       }
-      @scheduled = {}
     end
 
     def set_cpp0x; @settings['c++0x'] ||= (warn "** C++0x enabled"; true) end
@@ -125,7 +123,7 @@ module LazyPP
     def clear; @files = {} end
 
     def parse_str str
-      [Transform.apply(raw_tree = @p.parse(str)), raw_tree]
+      [Transform.apply(raw_tree = @parser.parse(str)), raw_tree]
     rescue Parslet::ParseFailed => _
       puts _.cause.ascii_tree
     end
