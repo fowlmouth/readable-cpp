@@ -14,7 +14,7 @@ cout << foo() << endl;
 var foo: ^ (int) -> ^ (float) -> double;
 //reads like english, pointer to a function (int) returning a pointer to a function (float) returning double
 //here's the horror it compiles to
-double ((*((*foo)(int )))(float ));
+double (*(*foo)(int ))(float );
 ```
 ### Include
 Does what you expect it to. If you include a file with the suffix "lhh" it will look for an LPP file by that name and instruct it to build headers also.

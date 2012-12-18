@@ -539,14 +539,14 @@ Type = Node.new(:base, :derived) do
 
     res )
   end
-  def base_cpp
+  def base_cpp 
     derived_cpp #just to cache it
     ([static ? static.downcase : nil,
       constness ? constness.downcase : nil
     ].compact + base).map(&:to_cpp).join(' ')
   end
   def to_cpp(*) ##note to self: % format result with the name
-    base_cpp << ' ' << derived_cpp
+    base_cpp << ' ' << derived_better
   end
 end
 TypeDecl = Node.new(:name, :type) do
@@ -659,7 +659,7 @@ VarDeclSimple = Node.new(:name, :type, :val) do
 end
 VarDeclInitializer = Node.new(:names, :type)do
   def to_cpp(rs = RenderState.new())
-    derived = type.derived_cpp
+    derived = type.derived_better #cpp
     rs.indentation + type.base_cpp + ' ' + [*names].map { |n| 
       name = derived % n.name
       if n.args.nil?

@@ -4,9 +4,14 @@ func bar is (x: int) -> int
 	return x + 42;
 }
 
+func returner is (some: ^(int)->int) -> ^(int)->int
+{
+	return some;
+}
+
 func foo is (void) -> ^(int) -> int
 {
-	return &bar;
+	return returner(&bar);//&bar;
 }
 
 func main is (void) -> int
