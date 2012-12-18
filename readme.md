@@ -16,6 +16,21 @@ var foo: ^ (int) -> ^ (float) -> double;
 //here's the horror it compiles to
 double ((*((*foo)(int )))(float ));
 ```
+### Include
+Does what you expect it to. If you include a file with the suffix "lhh" it will look for an LPP file by that name and instruct it to build headers also.
+```c++
+include <iostream>  //semicolon or EOL expected
+include "some.lpp"; include "someother.lpp"
+//output
+#include <iostream>
+#include "some.hpp"
+#include "someother.hpp"
+```
+### Import
+Import statement looks for a package file. Package is a simple YAML file that includes information for the linker (oh btw a simple build script is generated also)
+```c++
+import SFML/Graphics
+```
 ### Var declaration
 ```c++
 var foo, bar: ^int;
@@ -48,7 +63,9 @@ switch(x) {
     cout << "three";
     break;
 }
+```
 
 #### More Information
 * C type decl decoder http://cdecl.org/
 * Reading C type declarations http://unixwiz.net/techtips/reading-cdecl.html
+* SPECS Proposal http://www.csse.monash.edu.au/~damian/papers/HTML/ModestProposal.html

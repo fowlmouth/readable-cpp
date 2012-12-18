@@ -349,6 +349,7 @@ class RenderState
     RenderState.new(@opts.merge opts)
   end
   def gen_header() @opts[:gen_header] end
+  def gen_header?() !!@opts[:gen_header] end
   def parent=(p)
     @opts[:parent]=p
   end
@@ -515,7 +516,14 @@ Type = Node.new(:base, :derived) do
     base_cpp << ' ' << derived_cpp
   end
 end
-TypeDecl = Node.new(:name, :type) 
+TypeDecl = Node.new(:name, :type) do
+  def to_cpp rs
+    rs.gen_header? ? '' : to_hpp(rs)
+  end
+  def to_hpp rs
+    "typedef #{type.base_cpp} #{type.derived_cpp % name.to_cpp};"
+  end
+end
 class ClassDecl < TypeDecl
   attr_accessor :body, :parents
   def initialize(n,t,b,p)
@@ -528,7 +536,7 @@ class ClassDecl < TypeDecl
   end
   def to_cpp(rs = RenderState.new())
     rs = rs.new(parent: self)
-    (rs.gen_header ? "/*skipped header*/\n" :  to_hpp(rs)) +
+    "#{to_hpp(rs) unless rs.gen_header?}" +
     body.to_cpp(rs){|n|
       if n.is_a?(VarDeclInitializer) || n.is_a?(VarDeclSimple)
         false
@@ -741,8 +749,9 @@ FuncDecl = Node.new(:name, :args, :returns, :body) do
   def args= val; @args = Array.wrap val; end
   def scan(*args) body.scan(*args) end
   def to_cpp(rs)
-    #"#{rs.indentation}#{rs.parent && "#{rs.parent.name.to_cpp}::"}#{returns.to_cpp % name} (#{args.to_cpp}) \n"\
-    "#{rs.indentation}#{returns.base_cpp} #{rs.parent && rs.parent.name.to_cpp+'::'}#{returns.derived_simple % name}"\
+    ## more info on functions returning functions and such at http://www.newty.de/fpt/fpt.html
+
+    "#{rs.indentation}#{returns.base_cpp} #{rs.parent && rs.parent.name.to_cpp+'::'}#{returns.derived_cpp % name}"\
     "(#{args.map(&:to_cpp).join', '})\n"\
     "#{rs.indentation}{\n#{
       body.to_cpp(rs.indent) }\n"\

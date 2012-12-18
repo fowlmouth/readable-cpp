@@ -345,14 +345,15 @@ class Parser < Parslet::Parser
     (operator_prefix.as(:op) >> space?).maybe.as(:prefix) >>
     (
       float | int | string | char | cast | namespaced_ident | 
-      dot_ident | l_paren.present? >> paren_tagged?(base_expr, :parens)
+      dot_ident | l_paren.present? >> paren_tagged(base_expr, :parens)
     ).as(:expr) >>
     (operator_postfix | sq_bracket_expr).as(:op).maybe.as(:postfix) >>
     ((space? >> operator).absent? >> func_call_new).maybe >> 
     (space? >> operator.as(:infix) >> space? >> expr.as(:right)).maybe
   }
   rule(:expr) {
-    paren_tagged?(base_expr.as(:expr), :parens)
+    #paren_tagged?(base_expr.as(:expr), :parens)
+    base_expr.as(:expr)
   }
   rule(:sq_bracket_expr) {
     (
