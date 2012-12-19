@@ -52,9 +52,13 @@ end
 opts = Trollop.options {
   banner <<-EOS
 Usage: 
-       lazypp.rb -f somefile.lpp
+    lazypp.rb -f somefile.lpp
 
-       Packages will be searched in #{LazyPP::Package::PackageDir}
+    Packages will be searched in
+#{LazyPP::Package::PackageDir.map { |dir|
+  "      #{dir}"
+}.join(?\n)}
+
   EOS
   opt :f, "file", type: :string
   opt :p, "print result", default: false
@@ -66,6 +70,7 @@ Usage:
   opt :S, "parse a string", type: :string
   opt :H, "force build headers", default: false
   opt :B, "set build directory", type: :string, default: './build'
+  opt :I, "add package dir", type: :strings
   opt(:W, "watch", default: false) if $inotify
 }
 opts[:W] ||= false
@@ -74,6 +79,8 @@ p = LazyPP::Program.new
 res = nil
 
 p.build_dir = opts[:B] 
+opts[:I].each(&LazyPP::Package::PackageDir.method(:<<)) \
+  unless opts[:I].nil?
 
 unless opts[:S].nil?
   res = p.parse_str(opts[:S])
@@ -81,18 +88,19 @@ unless opts[:S].nil?
     if opts[:p]; puts p.to_cpp; end
   end
 else
-  if not opts[:W] and not opts[:P]
-    Trollop.die :f, "File argument (-f) is required" unless opts[:f] 
+  if not opts[:W]
+    Trollop.die :f, "File argument (-f) is required" unless opts[:P] || opts[:f] 
+    opts[:f] += '.lpp' unless opts[:f].nil? || opts[:f] =~ /\.lpp$/
     Trollop.die :f, "File does not exist" unless File.exist?(opts[:f]) 
   end
 end
 
-if not File.exist?(LazyPP::Package::PackageDir) ||
-  (realdir = File.realdirpath(LazyPP::Package::PackageDir)) &&
-  !File.directory?(realdir)
+# if not File.exist?(LazyPP::Package::PackageDir) ||
+#   (realdir = File.realdirpath(LazyPP::Package::PackageDir)) &&
+#   !File.directory?(realdir)
 
-  binding.pry
-end
+#   binding.pry
+# end
 
 if opts[:W] #TODO something with this
   i = INotify::Notifier.new

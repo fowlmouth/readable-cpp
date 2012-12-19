@@ -1,7 +1,16 @@
 
+class Object
+  def margs(m, *args)
+    proc do |inp|
+      self.send m, inp, *args
+    end
+  end
+end
 module LazyPP
   class Package
-    PackageDir = File.expand_path('~/.config/cpptranny/pkg')
+    PackageDir = [
+      File.expand_path('~/.config/cpptranny/pkg'),
+      Dir.pwd]
     @packages = {}
     attr_reader :includes, :linker, :name
     def self.new name
@@ -27,8 +36,9 @@ module LazyPP
 
     def find_pkg name
       n = name.p + '.yml'
-      [ File.join(PackageDir,n), File.join(Dir.pwd,n)
-      ].detect(&File.method(:exists?)) 
+      PackageDir.map(&File.margs(:join, n)).
+      #PackageDir.map{ |d| File.join(d, n) }.
+        detect(&File.method(:exists?)) 
     end
 
     alias to_s name

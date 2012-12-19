@@ -189,19 +189,6 @@ class Parser < Parslet::Parser
     `dtor` >> space? >> (colon >> space?).maybe >>
     body
   }
-  rule(:oper_decl) {
-    (
-      `oper` >> space >> 
-      (
-        `implicit`.as(:name) |
-        ((`pre`|`post`).as(:pos) >> space?).maybe >>
-          operator.as(:name)
-      ) >> colon_is? >> 
-      #((`pre` | `post`).as(:pos) >> space).maybe >>
-      #operator.as(:name) >> colon_is? >>
-      func_sig.as(:sig) >> space? >> body.as(:body)
-    ).as(:oper_decl)
-  }
 
   rule(:operator) {
     str('&&') | str('||') | str('==') | str('!=') |
@@ -242,7 +229,7 @@ class Parser < Parslet::Parser
       (space? >> str(?<) >> space? | space >> (`of`|`inherits`) >> space) >>
       join(parent_class, space? >> comma >> space?).as(:parents)
     ).maybe >>
-    space? >> brackets(program).as(:body)
+    space? >> brackets(program).maybe.as(:body)
   }
   rule(:parent_class) {
     (visibility.as(:vis) >> space).maybe >>
@@ -253,6 +240,21 @@ class Parser < Parslet::Parser
   }
 
 
+  rule(:oper_decl) {
+    (
+      `oper` >> space >> 
+      (
+        `implicit`.as(:name) |
+        ((`pre`|`post`).as(:pos) >> space?).maybe >>
+          operator.as(:name)
+      ) >> colon_is? >> 
+      ##((`pre` | `post`).as(:pos) >> space).maybe >>
+      ##operator.as(:name) >> colon_is? >>
+      #func_sig.as(:sig) >> space? >> body.as(:body)
+      func_sig_nosave.present? >> type.as(:sig) >>
+      space? >> (body.as(:body) | semicolon)
+    ).as(:oper_decl)
+  }
   rule(:func_decl) {
     (
       `func` >> space >> ident.as(:name) >> colon_is? >>
