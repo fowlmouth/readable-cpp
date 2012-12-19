@@ -1,0 +1,39 @@
+include <iostream>
+using namespace std
+
+type Foo is class {
+public:
+	ctor(void) a(42) {}
+	var a is int;
+};
+type Bar is class of public Foo {
+public:
+	func x is (void)->int {
+		return a;
+	}
+	oper pre ++ is (void) -> int {
+		cout << "bar::pre ++" << endl;
+		return ++a;
+	}
+	oper post ++ is (void) -> int {
+		cout  << "bar::post ++" << endl;
+		return a++;
+	}
+	oper post -- is (int) -> int {
+		cout << "bar::post --" << endl;
+		return a--;
+	}
+	oper implicit is (void)-> int {
+		cout << "bar::implicit to int" << endl;
+		return a;
+	}
+};
+
+func main is (void)->int {
+	var b: Bar;
+	b--;
+	++b;
+	b++;
+	var i: int = b;
+	return 0;
+}

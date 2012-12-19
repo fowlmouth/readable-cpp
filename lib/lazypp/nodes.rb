@@ -806,34 +806,31 @@ class OperDecl < FuncDecl
     self.pos = p
     self.sig = s
   end
+  def name= val
+    @name=val.to_s
+    @name=:implicit if name =~ /implicit/i
+  end
   def sig= val
     if pos == "post" && val.derived[0][:args] == 'void'
       val.derived[0][:args] = Type.new(:int, nil)
     end
     @sig = val
   end
+
   def decl_header rs, qualify = true
-    n = 'operator'+name.to_cpp(rs)
-    n = rs.parent.name.to_cpp(rs)+'::'+n if qualify && !rs.parent.nil? 
+    n = 'operator ' + if name == :implicit
+      sig.base_cpp(rs)+(sig.derived_cpp(rs)%'')
+    else
+      name.to_cpp(rs)
+    end
+    n.prepend rs.parent.name.to_cpp(rs)+'::' if qualify && !rs.parent.nil?
     
     rs.indentation +
-    if name.to_s =~ /implicit/i
-      binding.pry
-      'operator '+sig.base_cpp(rs)+(sig.derived_cpp(rs)%'')
-    else
-      sig.base_cpp(rs) + ' ' + (sig.derived_cpp(rs) % n)
-    end
+    (name == :implicit ?
+      n :
+      sig.base_cpp(rs) + ' ' + (sig.derived_cpp(rs) % n))
   end
   def to_cpp rs
-    # x="#{} operator #{
-    #   returns.base_cpp +
-    #   (returns.derived_cpp % (
-    #     (name.p =~ /implicit/i) ? '' : name))
-    # }(#{args.map(&:to_cpp)}) #{returns.constness} #{
-    #   body.nil? ? ?; : "{\n#{body.to_cpp}\n}"}"
-
-    # #binding.pry
-    # x
     decl_header(rs) + (body.nil? ? ?; : "{\n#{body.to_cpp rs.indent}\n#{rs.indentation}}")
   end
   def to_hpp rs
