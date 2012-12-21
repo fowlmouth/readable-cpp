@@ -1,0 +1,2 @@
+linker: '-lthor'
+flags: 'c++0x'
