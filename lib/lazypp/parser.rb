@@ -64,8 +64,9 @@ class Parser < Parslet::Parser
 
   rule(:ident) { (match['A-Za-z_'] >> match['A-Za-z0-9_'].repeat).as(:ident) }
   rule(:namespaced_ident) { join(ident, str('::'), 1).as(:namespace) }
+  #TODO another rule for just generic ident for function/class decls
   rule(:generic?) {
-    (str(?<) >> comma_list(namespaced_ident|ident|type
+    (str(?<) >> comma_list(type#|namespaced_ident|ident#|type
       ).as(:generics) >> str(?>)).maybe
   }
   rule(:digit) do match['\d'] end

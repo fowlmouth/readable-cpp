@@ -104,9 +104,9 @@ Transform = Parslet::Transform.new {
   rule(switch_stmt: {expr: simple(:x), cases: sequence(:cases)}) {
     SwitchStmt.new x, cases
   }
-  # rule(name: simple(:n), constructor: subtree(:c)) {
-  #   ConstructorName.new n, c
-  # }
+  rule(name: simple(:n), constructor: subtree(:c)) {
+    ConstructorName.new n, c
+  }
   rule(import_pkg: subtree(:i)) {
     ImportStmt.new(i)
   }
@@ -650,7 +650,7 @@ GenericIdent = Node.new(:ident, :generic) do
     @generic = Array.wrap(val)
   end
   def to_cpp(rs)
-    "#{ident.to_cpp(rs)}<#{generic.map{|n| n.to_cpp(rs)}.join', '}>"
+    "#{ident.to_cpp(rs)}<#{generic.map{|n| n.to_cpp(rs) % ''}.join', '}>"
   end
 end
 UnionType = Node.new(:members)
@@ -667,7 +667,7 @@ VarDeclInitializer = Node.new(:names, :type)do
   def to_cpp(rs = RenderState.new())
     derived = type.derived_cpp rs #cpp
     rs.indentation + type.base_cpp(rs) + ' ' + [*names].map { |n| 
-      name = derived % n.name
+      name = derived % n.name rescue binding.pry
       if n.args.nil?
         name
       else
