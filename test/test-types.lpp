@@ -1,0 +1,10 @@
+
+type Foo is struct {
+	var x: int;
+}
+type Options is enum {
+	Opt1, Opt2 = 2, Opt3
+}
+type BAAAHAH is union {
+	x: int; y: float
+}

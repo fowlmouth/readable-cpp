@@ -365,6 +365,7 @@ class RenderState
 end
 
 Conditional = Node.new(:kind, :condition, :body) do
+  def scan *args; body.scan(*args) unless body.nil? end
   def kind= val
     val = val.to_s
     @kind = if val =~ /elseif/i; "else if" #               ;)
@@ -554,6 +555,8 @@ TypeDecl = Node.new(:name, :type) do
     rs.gen_header? ? '' : to_hpp(rs)
   end
   def to_hpp rs
+    binding.pry if \
+      type.derived.nil? && (type.base[0].is_a?(UnionType) || type.base[0].is_a?(EnumType))
     "typedef #{type.base_cpp rs} #{type.derived_cpp(rs) % name.to_cpp(rs)};"
   end
 end
@@ -616,7 +619,7 @@ CaseStmt = Node.new(:exprs, :body) do
     i = rs.indentation
     (exprs == :default ? 
       i+"default:\n" : 
-      exprs.map { |x| i+"case #{x.to_cpp}:\n"}.join('')
+      exprs.map { |x| i+"case #{x.to_cpp rs}:\n"}.join('')
     ) + 
     body.to_cpp(rs.indent) +
     "\n#{rs.indent.indentation}break;"
@@ -624,7 +627,7 @@ CaseStmt = Node.new(:exprs, :body) do
 end
 SwitchStmt = Node.new(:expr, :body) do
   def to_cpp(rs)
-    "#{rs.indentation}switch(#{expr.to_cpp}) {\n" +
+    "#{rs.indentation}switch(#{expr.to_cpp rs}) {\n" +
     body.map { |s| s.to_cpp(rs) }.join("\n") +
     "\n#{rs.indentation}}"
   end
@@ -656,13 +659,13 @@ VarDeclSimple = Node.new(:name, :type, :val) do
   def to_cpp(rs = RenderState.new())
     # res = type.to_cpp
     # [*names].map { |n| (res + ';') % n }.join('')
-    rs.indentation + (type.base_cpp(rs) % '') + ' ' + (type.derived_better(rs)%name) + 
+    rs.indentation + (type.base_cpp(rs) % '') + ' ' + (type.derived_cpp(rs)%name) + 
       (val && " = #{val.to_cpp(rs)};" || ';')
   end
 end
 VarDeclInitializer = Node.new(:names, :type)do
   def to_cpp(rs = RenderState.new())
-    derived = type.derived_better rs #cpp
+    derived = type.derived_cpp rs #cpp
     rs.indentation + type.base_cpp(rs) + ' ' + [*names].map { |n| 
       name = derived % n.name
       if n.args.nil?
@@ -677,7 +680,7 @@ ConstructorName = Node.new(:name, :args)
 IdentDef = Node.new(:names, :type, :default) do
   def names= val; @names = Array.wrap(val) end
   def to_cpp(rs)
-    return to_hpp(rs)  unless rs.gen_header
+    #return to_hpp(rs)  unless rs.gen_header
     t = type.to_cpp(rs)
     names.map { |n| t % n }.join', '
   end
@@ -779,23 +782,21 @@ CtorDecl = Node.new(:args, :initializers, :body, :name) do
         parent.name.to_hpp(rs) :
         '/*constructor name missing and parent node has no name*/' :
       name
-    }(#{args.map{|a|a.to_cpp rs}.join', '});"
+    }(#{args.map{|a|a.to_hpp rs}.join', '});"
   end
 end
 FuncDecl = Node.new(:name, :sig, :body) do
-  #def args= val; @args = Array.wrap val; end
   def scan(*args) body.scan(*args) end
   def to_cpp(rs)
     ## more info on functions returning functions and such at http://www.newty.de/fpt/fpt.html
-    "#{rs.indentation}#{sig.base_cpp(rs)} #{rs.parent && rs.parent.name.to_cpp+'::'}#{sig.derived_better(rs) % name}\n"+
+    "#{rs.indentation}#{sig.base_cpp(rs)} #{rs.parent && rs.parent.name.to_cpp+'::'}#{sig.derived_cpp(rs) % name}\n"+
     #"(#{args.map(&:to_cpp).join', '})\n"\
     "#{rs.indentation}{\n#{
       body.to_cpp(rs.indent) }\n"\
     "#{rs.indentation}}"
   end
   def to_hpp(rs)
-    "#{rs.indentation}#{sig.base_cpp rs} #{sig.derived_better(rs, :to_hpp) % name};"\
-    rescue binding.pry
+    "#{rs.indentation}#{sig.base_cpp rs} #{sig.derived_cpp(rs, :to_hpp) % name};"
   end
 end
 class OperDecl < FuncDecl
@@ -817,7 +818,7 @@ class OperDecl < FuncDecl
     @sig = val
   end
 
-  def decl_header rs, qualify = true
+  def decl_header rs, qualify
     n = 'operator ' + if name == :implicit
       sig.base_cpp(rs)+(sig.derived_cpp(rs)%'')
     else
@@ -831,7 +832,7 @@ class OperDecl < FuncDecl
       sig.base_cpp(rs) + ' ' + (sig.derived_cpp(rs) % n))
   end
   def to_cpp rs
-    decl_header(rs) + (body.nil? ? ?; : "{\n#{body.to_cpp rs.indent}\n#{rs.indentation}}")
+    decl_header(rs, true) + (body.nil? ? ?; : "\n#{rs.indentation}{\n#{body.to_cpp rs.indent}\n#{rs.indentation}}")
   end
   def to_hpp rs
     decl_header(rs, false) + ?;
