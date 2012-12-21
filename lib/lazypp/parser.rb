@@ -360,7 +360,13 @@ class Parser < Parslet::Parser
     ).as(:expr) >>
     (operator_postfix | sq_bracket_expr).as(:op).maybe.as(:postfix) >>
     ((space? >> operator).absent? >> func_call_new).maybe >> 
-    (space? >> operator.as(:infix) >> space? >> expr.as(:right)).maybe
+    ( space? >> 
+      (
+        str(??).as(:ternary) >> space? >> expr.as(:true) >> 
+        space? >> colon >> space? >> expr.as(:false) |
+        operator.as(:infix) >> space? >> expr.as(:right)
+      )
+    ).maybe
   }
   rule(:expr) {
     #paren_tagged?(base_expr.as(:expr), :parens)

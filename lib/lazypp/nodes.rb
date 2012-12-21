@@ -171,6 +171,10 @@ Transform = Parslet::Transform.new {
   rule(parens: simple(:x)) { 
     ParenExpr.new x
   }
+  rule(prefix: simple(:p), expr: simple(:x), postfix: simple(:pp),
+    ternary: simple(:t), true: simple(:xT), false: simple(:xF)) {
+    TernaryExpr.new(Expr.new(p,x,pp), xT, xF)
+  }
   rule(parens: simple(:x), args: simple(:a)) {
     FuncCall.new ParenExpr.new(x), a
   }
@@ -638,6 +642,11 @@ InfixExpr = Node.new(:left, :infix, :right) do
     "#{left.to_cpp rs
     } #{infix.to_cpp rs
     } #{right.to_cpp rs}"
+  end
+end
+TernaryExpr = Node.new(:cond, :t, :f) do
+  def to_cpp rs
+    "#{cond.to_cpp rs} ? #{t.to_cpp rs} : #{f.to_cpp rs}"
   end
 end
 BracketExpr = Node.new(:expr) do
