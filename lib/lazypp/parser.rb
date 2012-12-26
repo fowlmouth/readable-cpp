@@ -139,11 +139,17 @@ class Parser < Parslet::Parser
       `type` >> space >> (ident >> generic?).as(:name) >>
       colon_is >>
       (class_decl | type).as(:type) >>
-      (space? >> str(';') | eol)
+      (space? >> str(';') | eol | any.absnt?)
     ).as(:type_decl)
   }
   rule(:import_stmt) {
     `import` >> space >> join(ident, str(?/)).as(:import_pkg)
+  }
+  rule(:define_stmt) {
+    (
+      `define` >> space >> ident.as(:name) >>
+      (colon_is | space_nonterminal) >> expr.as(:expr) >> eol
+    ).as(:define_stmt)
   }
   rule(:include_stmt) {
     (
@@ -296,7 +302,8 @@ class Parser < Parslet::Parser
     join(ident, access.as(:access)).as(:dot_ident)
   }
   rule(:dot_expr) {
-    join(expr.as(:expr), access.as(:access)).as(:dot_expr)
+    #join(expr.as(:expr), access.as(:access)).as(:dot_expr)
+    join(base_expr.as(:expr), access.as(:access)).as(:dot_expr)
   }
   rule(:func_call_new) {
       (
@@ -370,7 +377,8 @@ class Parser < Parslet::Parser
   }
   rule(:expr) {
     #paren_tagged?(base_expr.as(:expr), :parens)
-    base_expr.as(:expr)
+    #base_expr.as(:expr)
+    dot_expr
   }
   rule(:sq_bracket_expr) {
     (
@@ -398,7 +406,7 @@ class Parser < Parslet::Parser
     var_decl | auto_decl | import_stmt | using_stmt | func_decl | 
     return_stmt | class_visibility_decl | switch_stmt |
     namespace_decl | type_decl | ctor_decl | dtor_decl | oper_decl |
-    conditional | lang_section | include_stmt |
+    conditional | lang_section | include_stmt | define_stmt |
     (dot_expr.as(:expr_stmt) >> space? >> semicolon)
     #(expr.as(:expr_stmt) >> space? >> semicolon)
   }

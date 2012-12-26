@@ -91,7 +91,7 @@ else
   if not opts[:W]
     Trollop.die :f, "File argument (-f) is required" unless opts[:P] || opts[:f] 
     opts[:f] += '.lpp' unless opts[:f].nil? || opts[:f] =~ /\.lpp$/
-    Trollop.die :f, "File does not exist" unless File.exist?(opts[:f]) 
+    Trollop.die :f, "File does not exist #{opts[:f]}" if (opts[:f].nil? ? !opts[:P] : !File.exist?(opts[:f]))
   end
 end
 

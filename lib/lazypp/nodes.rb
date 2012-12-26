@@ -110,6 +110,9 @@ Transform = Parslet::Transform.new {
   rule(import_pkg: subtree(:i)) {
     ImportStmt.new(i)
   }
+  rule(define_stmt: {name: simple(:n), expr: simple(:x)}) {
+    DefineStmt.new n, x
+  }
   rule(include_stmt: { std: simple(:x), file: simple(:f) }) {
     IncludeStmt.new f, :std
   }
@@ -619,6 +622,7 @@ ParenExpr = Node.new(:expr) do
   def to_cpp(rs) "(#{expr.to_cpp rs})" end
 end
 CaseStmt = Node.new(:exprs, :body) do
+  def scan(*args) body.each { |b| b.scan *args } end
   def to_cpp(rs)
     i = rs.indentation
     (exprs == :default ? 
@@ -630,6 +634,7 @@ CaseStmt = Node.new(:exprs, :body) do
   end
 end
 SwitchStmt = Node.new(:expr, :body) do
+  def scan(*args) body.each { |b| b.scan *args } end
   def to_cpp(rs)
     "#{rs.indentation}switch(#{expr.to_cpp rs}) {\n" +
     body.map { |s| s.to_cpp(rs) }.join("\n") +
@@ -724,6 +729,14 @@ StringLit = Node.new(:wchar, :str) do
   def str= val; @str = val.to_s end
   extend Forwardable
   def_delegators :@str, :=~, :to_s
+end
+DefineStmt = Node.new(:name, :expr) do
+  def to_cpp(rs)
+    to_hpp(rs) if not rs.gen_header?
+  end
+  def to_hpp(rs)
+    "#define #{name.to_cpp rs} #{expr.to_cpp rs}"
+  end
 end
 IncludeStmt = Node.new(:file, :type) do
   def file= val
