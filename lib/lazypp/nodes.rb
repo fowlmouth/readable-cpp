@@ -476,7 +476,7 @@ StmtList = Class.new(Array) do #Node.new(:stmts) do
   def at index; self[index] end
 end
 Type = Node.new(:base, :derived) do
-  attr_accessor :constness, :static
+  attr_accessor :constness, :static, :inline
   def derived= val
     @derived = (val == [''] || val.nil?) ? nil : Array.wrap(val) 
   end
@@ -498,7 +498,7 @@ Type = Node.new(:base, :derived) do
       derived.each do |d|
         d = Hash[d] if d.is_a?(Array)
         if d.has_key? :constness; self.constness = d[:constness].to_s
-        elsif d.has_key? :static; self.static = d[:static].to_s
+        #elsif d.has_key? :static; self.static = d[:static].to_s
         elsif d.has_key? :pointer
           res = "*#{res}"
           left = true
@@ -513,6 +513,17 @@ Type = Node.new(:base, :derived) do
           n = "(#{[*d[:args]].map { |a| a.send(m, rs) % '' }.join', '})"
           res = if left; left = false; "(#{res})#{n}"
                 else; "#{res}#{n}" end
+        elsif d.has_key? :specifiers
+          d[:specifiers].each do |s|
+            if s.has_key? :static
+              self.static = :static
+            elsif s.has_key? :inline
+              self.inline = :inline
+            end
+          end
+        else
+          ##what the hell is this? :o
+          binding.pry
         end
       end unless derived.nil?
       res
@@ -547,11 +558,18 @@ Type = Node.new(:base, :derived) do
 
     # res )
   end
-  def base_cpp rs
-    derived_better rs #just to cache it
+  def base_hpp rs
+    derived_better rs
     ([static ? static.downcase : nil,
       constness ? constness.downcase : nil
     ].compact + base).map{|x|x.to_cpp(rs)}.join(' ')
+  end
+  def base_cpp rs
+    derived_better rs #just to cache it
+    (base).map{|x|x.to_cpp(rs)}.join(' ')
+  end
+  def to_hpp rs
+    base_hpp(rs) << ' ' << derived_better(rs)
   end
   def to_cpp rs ##note to self: % format result with the name
     base_cpp(rs) << ' ' << derived_better(rs)
@@ -574,6 +592,9 @@ class ClassDecl < TypeDecl
   end
 
   def scan p; body.scan(p) unless body.nil? end
+  def type= val
+    @type = (val.to_s.downcase.intern rescue :class)
+  end
   def parents= val
     @parents = val.nil? ? val : Array.wrap(val)
   end
@@ -589,7 +610,7 @@ class ClassDecl < TypeDecl
   end
   def to_hpp(rs)
     rs = rs.new parent: self
-    "class #{name} #{
+    "#{type} #{name} #{
       ": #{
         parents.map { |p| 
           "#{p[:vis].to_cpp(rs)} #{p[:parent].to_cpp}"
@@ -818,7 +839,7 @@ FuncDecl = Node.new(:name, :sig, :body) do
     "#{rs.indentation}}"
   end
   def to_hpp(rs)
-    "#{rs.indentation}#{sig.base_cpp rs} #{sig.derived_cpp(rs, :to_hpp) % name};"
+    "#{rs.indentation}#{sig.base_hpp rs} #{sig.derived_cpp(rs, :to_hpp) % name};"
   end
 end
 class OperDecl < FuncDecl

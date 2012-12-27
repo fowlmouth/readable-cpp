@@ -78,8 +78,22 @@ class Parser < Parslet::Parser
     ) >> (`f` | str('L')).maybe.as(:type)
   }
 
+  rule(:specifier) {
+    `static`.as(:static) | `inline`.as(:inline) |
+    `virtual`.as(:virtual) | `explicit`.as(:explicit)
+  }
+
+  rule(:specifiers) {
+    (
+      specifier >> (space >> specifier).repeat
+    ).as(:specifiers)
+  }
+  rule(:specifiers?) { specifiers.maybe }
+
   rule(:derived_type) {
-    (`static`.as(:static) >> space).maybe >>
+    (specifiers >> space?).maybe >>
+    #(specifier >> space).repeat >>
+    #(`static`.as(:static) >> space).maybe >>
     ((`const` | `mutable`).as(:constness) >> space).maybe >>
     ((
       str('^').as(:pointer) |
@@ -270,7 +284,7 @@ class Parser < Parslet::Parser
     ).as(:func_decl)
   }
   rule(:func_sig_nosave) { ##func_sig.present? didnt work, but this does..
-    parens(`void` | `any` | ident_defs | comma_list(type)) >>
+    (specifiers >> space?).maybe >> parens(`void` | `any` | ident_defs | comma_list(type)) >>
     spaced?(str('->')) >> type
   }
   rule(:func_sig) {
