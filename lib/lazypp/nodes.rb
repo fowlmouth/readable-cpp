@@ -119,6 +119,10 @@ Transform = Parslet::Transform.new {
   rule(include_stmt: { local: simple(:f) }) {
     IncludeStmt.new f, :local
   }
+  rule(include_stmt: sequence(:s)) {
+    StmtList.new(s)
+  }
+  rule(include_stmt: simple(:s)) { s }
   rule(using_stmt: { ns: simple(:ns), using_namespace: simple(:n) }) {
     UsingStmt.new("namespace #{n}")
   }
@@ -252,6 +256,8 @@ Transform = Parslet::Transform.new {
       body: subtree(:b) }}) {
     ClassDecl.new(n, c, b, nil)
   }
+  rule(struct_lit: simple(:x)) { StructLit.new x }
+  rule(struct_lit: sequence(:x)) { StructLit.new x }
   rule(type_decl: {
     name: simple(:n),
     type: simple(:t) }) {
@@ -693,7 +699,11 @@ GenericIdent = Node.new(:ident, :generic) do
   end
 end
 UnionType = Node.new(:members)
-EnumType = Node.new(:fields)
+EnumType = Node.new(:fields) do
+  def to_cpp(rs)
+    "enum{#{fields.map{|f|f.to_cpp rs}.join', '}}"
+  end
+end
 VarDeclSimple = Node.new(:name, :type, :val) do
   def to_cpp(rs = RenderState.new())
     # res = type.to_cpp
@@ -761,6 +771,12 @@ DefineStmt = Node.new(:name, :expr) do
   end
   def to_hpp(rs)
     "#define #{name.to_cpp rs} #{expr.to_cpp rs}"
+  end
+end
+StructLit = Node.new(:x) do
+  def x= val; @x = Array(val) end
+  def to_cpp(rs)
+    "{#{x.map{|_|_.to_cpp rs}.join', '}}"
   end
 end
 IncludeStmt = Node.new(:file, :type) do

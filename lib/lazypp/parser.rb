@@ -92,8 +92,6 @@ class Parser < Parslet::Parser
 
   rule(:derived_type) {
     (specifiers >> space?).maybe >>
-    #(specifier >> space).repeat >>
-    #(`static`.as(:static) >> space).maybe >>
     ((`const` | `mutable`).as(:constness) >> space).maybe >>
     ((
       str('^').as(:pointer) |
@@ -168,10 +166,10 @@ class Parser < Parslet::Parser
   rule(:include_stmt) {
     (
       `include` >> space >>
-      ( str(?<).as(:std) >> ((alphnum|str(?/)).repeat(1) >> (str('.') >> 
+      join(( str(?<).as(:std) >> ((alphnum|str(?/)).repeat(1) >> (str('.') >> 
         alphnum.repeat(1,3)).maybe).as(:file) >> str(?>) |
         string.as(:local) 
-      ) >>
+      ).as(:include_stmt), space? >> comma >> space?, 0) >>
       (eol | space? >> semicolon)
     ).as(:include_stmt)
   }
@@ -218,7 +216,7 @@ class Parser < Parslet::Parser
     str('|=') | str('&=') |
     str('++') | str('--') | str('<<') | str('>>') |
     str('+')  | str('-')  | str('/')  | str('*')  |
-    str('&')  | str('|')  | str('=')  |
+    str('&')  | str('|')  | str('=')  | str('%')  |
     str('<')  | str('>')
   }
   rule(:operator_prefix) {
@@ -377,7 +375,9 @@ class Parser < Parslet::Parser
     (operator_prefix.as(:op) >> space?).maybe.as(:prefix) >>
     (
       float | int | string | char | cast | namespaced_ident | 
-      dot_ident | l_paren.present? >> paren_tagged(base_expr, :parens)
+      dot_ident | 
+      brackets(comma_list(expr)).as(:struct_lit) |
+      paren_tagged(base_expr, :parens)
     ).as(:expr) >>
     (operator_postfix | sq_bracket_expr).as(:op).maybe.as(:postfix) >>
     ((space? >> operator).absent? >> func_call_new).maybe >> 

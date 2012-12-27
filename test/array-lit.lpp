@@ -1,0 +1,16 @@
+include <iostream>
+var s: [3]int = {1,2,3};
+var x: [1]char = {'h'};
+//var y: struct{ foo: int; };
+var z: enum {AA,BB} = BB;
+type foo is enum{U,UU,UUU};
+var zz: foo = UUU;
+
+func main is (void)->int {
+	for auto i = 0; i < 3; i++ {
+		std::cout<<"index "<<i<<": "<<
+		s[i]<<std::endl;
+	}
+	std::cout<<"z = "<<z<<std::endl<<
+	"zz ="<<zz<<std::endl;
+}
