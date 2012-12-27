@@ -519,6 +519,8 @@ Type = Node.new(:base, :derived) do
               self.static = :static
             elsif s.has_key? :inline
               self.inline = :inline
+            else ##implement me
+              binding.pry
             end
           end
         else
@@ -566,7 +568,9 @@ Type = Node.new(:base, :derived) do
   end
   def base_cpp rs
     derived_better rs #just to cache it
-    (base).map{|x|x.to_cpp(rs)}.join(' ')
+    ([
+      constness ? constness : nil].compact + base
+    ).map{|x|x.to_cpp(rs)}.join(' ')
   end
   def to_hpp rs
     base_hpp(rs) << ' ' << derived_better(rs)
@@ -720,7 +724,7 @@ IdentDef = Node.new(:names, :type, :default) do
     names.map { |n| t % n }.join', '
   end
   def to_hpp(rs)
-    t = type.to_cpp(rs)
+    t = type.to_hpp(rs)
     names.map { |n|
       res = t % n
       (res << ' = ' << default.to_cpp(rs)) unless default.nil?
