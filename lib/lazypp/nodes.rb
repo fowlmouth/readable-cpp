@@ -64,6 +64,9 @@ Transform = Parslet::Transform.new {
   rule(enum: { fields: subtree(:f) }) {
     EnumType.new f
   }
+  rule(struct: simple(:body)) {
+    StructType.new body
+  }
   rule(lang_section: subtree(:l)) {
     #binding.pry
     LangSection.new(l) }
@@ -143,10 +146,12 @@ Transform = Parslet::Transform.new {
   }
   rule(func_decl: {
     name: simple(:name),
-    sig: simple(:sig)  }) { FuncDecl.new name, sig, nil }
+    generics: simple(:g),
+    sig: simple(:sig)  }) { FuncDecl.new name, sig, nil, g }
   rule(func_decl: {
-    name: simple(:name), sig: simple(:sig), body: simple(:b)}){
-    FuncDecl.new name, sig, b
+    name: simple(:name), generics: simple(:g),
+    sig: simple(:sig), body: simple(:b)}){
+    FuncDecl.new name, sig, b, g
   }
   # rule(func_decl: {
   #   name: simple(:name),
@@ -704,6 +709,11 @@ EnumType = Node.new(:fields) do
     "enum{#{fields.map{|f|f.to_cpp rs}.join', '}}"
   end
 end
+StructType = Node.new(:body) do
+  def to_cpp(rs)
+    "struct{#{body.to_cpp(rs)}}"
+  end
+end
 VarDeclSimple = Node.new(:name, :type, :val) do
   def to_cpp(rs = RenderState.new())
     # res = type.to_cpp
@@ -848,10 +858,14 @@ CtorDecl = Node.new(:args, :initializers, :body, :name) do
     }(#{args.map{|a|a.to_hpp rs}.join', '});"
   end
 end
-FuncDecl = Node.new(:name, :sig, :body) do
+FuncDecl = Node.new(:name, :sig, :body, :generics) do
+  def generics= val; @generics = val.nil? ? nil : Array(val) end
   def scan(*args) body.scan(*args) end
   def to_cpp(rs)
+    #name = self.name.to_cpp rs
+    #name += "<#{generics.map{|_|_.to_cpp rs}.join','}>" if generics
     ## more info on functions returning functions and such at http://www.newty.de/fpt/fpt.html
+    "#{"#{rs.indentation}template <#{generics.map{|x|'typename '+ x.to_cpp(rs)}.join', '}>\n" if generics}" +
     "#{rs.indentation}#{sig.base_cpp(rs)} #{rs.parent && rs.parent.name.to_cpp+'::'}#{sig.derived_cpp(rs) % name}\n"+
     #"(#{args.map(&:to_cpp).join', '})\n"\
     "#{rs.indentation}{\n#{

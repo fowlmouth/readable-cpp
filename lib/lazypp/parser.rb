@@ -106,6 +106,7 @@ class Parser < Parslet::Parser
       derived_type.as(:derived).maybe >> space? >>
       ( union_decl.as(:union) | 
         enum_decl.as(:enum)   |
+        `struct` >> space? >> brackets(program).as(:struct) |
         join(ident, space, 1) |
         join(
           (ident | namespaced_ident) >> generic?, 
@@ -274,9 +275,14 @@ class Parser < Parslet::Parser
       space? >> (body.as(:body) | semicolon)
     ).as(:oper_decl)
   }
+  rule(:generic_identifiers) {
+    str(?<) >> space? >> comma_list(ident.as(:ident)) >>
+    space? >> str(?>)
+  }
   rule(:func_decl) {
     (
-      `func` >> space >> ident.as(:name) >> colon_is? >>
+      `func` >> space >> ident.as(:name) >> 
+      generic_identifiers.maybe.as(:generics) >> colon_is? >>
       func_sig_nosave.present? >> type.as(:sig) >>
       space? >> (body.as(:body) | semicolon)
     ).as(:func_decl)

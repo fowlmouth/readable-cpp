@@ -1,0 +1,12 @@
+include <iostream>
+
+func foo<T> is (a, b: T)-> T {
+	return a + b;
+}
+
+func main (void)->int {
+	var x: int = 42;
+	var y: int = 58;
+	std::cout << "x + y = " << foo(x, y) << std::endl;
+	return 0;
+}
