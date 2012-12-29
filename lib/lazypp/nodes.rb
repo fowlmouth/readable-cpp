@@ -64,6 +64,12 @@ Transform = Parslet::Transform.new {
   rule(auto_decl: {name: simple(:n), value: subtree(:v)}) {
     AutoDecl.new(n, v)
   }
+  rule(:catch => simple(:c), body: simple(:b)) {
+    CatchStmt.new(c, b)
+  }
+  rule(attempt: simple(:at), catches: sequence(:c)) {
+    TryStmt.new(at, c)
+  }
   rule(enum: { fields: subtree(:f) }) {
     EnumType.new f
   }
@@ -510,6 +516,8 @@ Type = Node.new(:base, :derived) do
       left = false
       derived.each do |d|
         d = Hash[d] if d.is_a?(Array)
+        next if d.empty?
+
         if d.has_key? :constness; self.constness = d[:constness].to_s
         #elsif d.has_key? :static; self.static = d[:static].to_s
         elsif d.has_key? :pointer
@@ -598,7 +606,7 @@ TypeDecl = Node.new(:name, :type) do
   end
   def to_hpp rs
     binding.pry if \
-      type.derived.nil? && (type.base[0].is_a?(UnionType) || type.base[0].is_a?(EnumType))
+      type.derived.nil? && (type.base[0].is_a?(UnionType))# || type.base[0].is_a?(EnumType))
     "typedef #{type.base_cpp rs} #{type.derived_cpp(rs) % name.to_cpp(rs)};"
   end
 end
@@ -789,6 +797,19 @@ StructLit = Node.new(:x) do
   def x= val; @x = Array(val) end
   def to_cpp(rs)
     "{#{x.map{|_|_.to_cpp rs}.join', '}}"
+  end
+end
+TryStmt = Node.new(:attempt, :catches) do
+  def to_cpp rs
+    "#{rs.indentation}try {\n#{attempt.to_cpp rs.indent}\n"\
+    "#{rs.indentation}} #{catches.map{|c|c.to_cpp rs}.join''}"
+  end
+end
+CatchStmt = Node.new(:c, :body) do
+  def to_cpp rs
+    "#{rs.indentation}catch (#{c.to_cpp rs}) {\n"\
+    "#{body.to_cpp rs.indent}\n"\
+    "#{rs.indentation}}"
   end
 end
 IncludeStmt = Node.new(:file, :type) do

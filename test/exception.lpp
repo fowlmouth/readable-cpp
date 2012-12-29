@@ -1,0 +1,11 @@
+include <iostream>
+using namespace std;
+func main is (void)->int {
+	try {
+		throw 20;
+	} catch(x: int) {
+		cout << "Caught " << x << endl;
+	}
+
+	return 0;
+}

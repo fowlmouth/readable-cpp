@@ -114,6 +114,12 @@ class Parser < Parslet::Parser
       ).as(:base)
     ).as(:type)
   }
+  rule(:try_catch) {
+    `try` >> space? >> brackets(program.as(:attempt)) >>
+    ( space? >> `catch` >> (space >> ident_def | space? >> parens(ident_def)).as(:catch) >> 
+      space? >> brackets(program.as(:body))
+    ).repeat(1).as(:catches)
+  }
   rule(:lang_section) {
     (
       `lang` >> space >> (
@@ -147,8 +153,6 @@ class Parser < Parslet::Parser
         ).as(:stmts)
       ) >>
       space? >> semicolon
-      #comma_list(ident.as(:name) >> parens(comma_list(expr).maybe).as(:constructor).maybe).as(:names) >> 
-      #colon_is? >> type.as(:type) >> space? >> semicolon
     )#.as(:var_decl)
   }
   rule(:class_visibility_decl) {
@@ -431,6 +435,7 @@ class Parser < Parslet::Parser
 
   rule(:stmt) {
     var_decl | auto_decl | import_stmt | using_stmt | func_decl | 
+    try_catch |
     return_stmt | class_visibility_decl | switch_stmt |
     namespace_decl | type_decl | ctor_decl | dtor_decl | oper_decl |
     conditional | lang_section | include_stmt | define_stmt |
