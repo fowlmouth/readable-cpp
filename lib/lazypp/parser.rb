@@ -133,16 +133,23 @@ class Parser < Parslet::Parser
     (
       `var` >> space >> 
       ##single assign
-      ( ident.as(:name) >> colon_is  >>
-        type.as(:type) >> spaced?(str(?=) >> space? >> expr.as(:expr)).maybe |
+      ( 
+        (
+          ident.as(:name) >> colon_is  >>
+          type.as(:type) >> spaced?(str(?=) >> space? >> expr.as(:expr))
+        ).as(:var_decl) |
       ##multiple decl/initialize
-        comma_list(ident.as(:name) >> parens(comma_list(expr).maybe).maybe.as(:constructor)).as(:names) >>
-        colon_is >> type.as(:type)
+        comma_list(
+          (
+            comma_list(ident.as(:name) >> parens(comma_list(expr).maybe).maybe.as(:constructor)).as(:names) >>
+            colon_is >> type.as(:type)
+          ).as(:var_decl)
+        ).as(:stmts)
       ) >>
       space? >> semicolon
       #comma_list(ident.as(:name) >> parens(comma_list(expr).maybe).as(:constructor).maybe).as(:names) >> 
       #colon_is? >> type.as(:type) >> space? >> semicolon
-    ).as(:var_decl)
+    )#.as(:var_decl)
   }
   rule(:class_visibility_decl) {
     visibility.as(:visibility_stmt) >> space? >> colon >> eol

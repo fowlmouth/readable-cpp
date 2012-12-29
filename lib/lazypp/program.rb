@@ -135,9 +135,7 @@ module LazyPP
     end
 
     def notify msg
-      @handlers[msg.class] ?
-        @handlers[msg.class].(msg) :
-        nil
+      @handlers[msg.class] && @handlers[msg.class].(msg)
     end
 
     def [](key); @tree[key] end 
@@ -154,16 +152,19 @@ module LazyPP
       return if @files.any? {|f, u| u.tree.nil?}
       set_cpp0x if @pkgs.any? { |p| p.cpp0x? }
       FileUtils.mkdir_p build_dir
+      workingdir = Dir.pwd
       Dir.chdir build_dir do
         @files.each_value {|u| u.write }
-        open(buildscript = "build.#{@files[@files.keys.first].basename}.sh", 'w+') do |f|
+        open(buildscript = "build.#{outname = @files[@files.keys.first].basename}.sh", 'w+') do |f|
           f.puts buildscripts
         end
 
         if system 'chmod +x '<< buildscript
           if build
             warn 'building..'
-            system './' << buildscript
+            if system './' << buildscript
+              FileUtils.mv outname, File.join(workingdir, outname)
+            end
           end
         end
 
@@ -180,7 +181,7 @@ module LazyPP
       linker_opts = @pkgs.map { |p| 
         p.linker or nil 
       }.compact.join' '
-      compile_opts = @settings['c++0x'] ? '-std=gnu++0x' : nil
+      compile_opts = cpp0x? ? '-std=gnu++0x' : nil
 
       # "#!/bin/sh \n" +
       # cpps.map{|f|"g++ -c #{f} #{compile_opts} &&\n"}.join +

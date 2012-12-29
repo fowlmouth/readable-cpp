@@ -49,6 +49,9 @@ Transform = Parslet::Transform.new {
   rule(stmts: sequence(:s)) {
     StmtList.new s
   }
+  rule(stmts: simple(:s)) {
+    StmtList.new Array.wrap s
+  }
   rule(wchar: simple(:w), string: simple(:s)) {
     StringLit.new(w, s)
   }
@@ -478,8 +481,7 @@ StmtList = Class.new(Array) do #Node.new(:stmts) do
     #stmts.
     #map(&:to_cpp).join("\n")
     if block_given?
-      select(&b).map { |s| s.to_cpp(rs) }.join"\n"
-      #map { |s| if b[s] then s.to_cpp(rs) else nil end }.compact.join"\n"
+      select(&b).map { |s| s.to_cpp(rs, &b) }.join"\n"
     else
       map { |s| s.to_cpp(rs) }.join"\n"
     end
