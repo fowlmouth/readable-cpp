@@ -107,7 +107,7 @@ class Parser < Parslet::Parser
       ( union_decl.as(:union) | 
         enum_decl.as(:enum)   |
         `struct` >> space? >> brackets(program).as(:struct) |
-        join(ident, space, 1) |
+        join(`in`.absnt? >> ident, space, 1) |
         join(
           (ident | namespaced_ident) >> generic?, 
           str('::'), 0).as(:namespaced) 

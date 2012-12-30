@@ -305,6 +305,9 @@ Transform = Parslet::Transform.new {
     body: simple(:b) }) {
     Conditional.new k, nil, b
   }
+  rule(range_for: { var: simple(:v), range: simple(:container), body: simple(:b)}) {
+    RangeForStmt.new v, container, b
+  }
   rule(namespaced: simple(:i)) {
     NamespaceIdent.new i
   }
@@ -403,6 +406,14 @@ Conditional = Node.new(:kind, :condition, :body) do
     "#{rs.indentation}#{kind.to_cpp}#{
       "(#{condition.to_cpp rs})" unless condition.nil?
     } {\n#{body.to_cpp(rs.indent)}\n#{rs.indentation}}"
+  end
+end
+RangeForStmt = Node.new(:var, :container, :body) do
+  def scan p; p.set_cpp0x; body.scan p end
+  def to_cpp rs
+    "#{rs.indentation}for(#{var.to_cpp(rs)} : #{container.to_cpp rs}) {\n"+
+    body.to_cpp(rs.indent)+
+    "#{rs.indentation}}"
   end
 end
 ForStmt = Class.new(Conditional) do

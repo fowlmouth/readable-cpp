@@ -1,0 +1,9 @@
+include <iostream>,<vector>
+using namespace std
+func main is (void)->int {
+	var v: vector<int> = {1,2,3,4};
+	for i: &int in v {
+		cout << i << endl;
+	}
+	return 0;
+}
