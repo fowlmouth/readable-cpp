@@ -496,6 +496,12 @@ StmtList = Class.new(Array) do #Node.new(:stmts) do
 end
 Type = Node.new(:base, :derived) do
   attr_accessor :constness, :static, :inline
+  attr_accessor :specifiers
+  def initialize(b, d)
+    self.base = b
+    self.derived = d
+    self.specifiers =Set.new
+  end
   def derived= val
     @derived = (val == [''] || val.nil?) ? nil : Array.wrap(val) 
   end
@@ -536,10 +542,11 @@ Type = Node.new(:base, :derived) do
                 else; "#{res}#{n}" end
         elsif d.has_key? :specifiers
           d[:specifiers].each do |s|
+            specifiers.add s.keys.first
             if s.has_key? :static
-              self.static = :static
+              #self.static = :static
             elsif s.has_key? :inline
-              self.inline = :inline
+              #self.inline = :inline
             else ##implement me
               binding.pry
             end
@@ -583,15 +590,17 @@ Type = Node.new(:base, :derived) do
   end
   def base_hpp rs
     derived_better rs
-    ([static ? static.downcase : nil,
-      constness ? constness.downcase : nil
-    ].compact + base).map{|x|x.to_cpp(rs)}.join(' ')
+    specifiers.to_a.join(' ') + base.map{|x|x.to_hpp rs}.join(' ')
+    # ([static ? static.downcase : nil,
+    #   constness ? constness.downcase : nil
+    # ].compact + base).map{|x|x.to_cpp(rs)}.join(' ')
   end
   def base_cpp rs
     derived_better rs #just to cache it
-    ([
-      constness ? constness : nil].compact + base
-    ).map{|x|x.to_cpp(rs)}.join(' ')
+    specifiers.to_a.join(' ') + base.map{|x|x.to_cpp rs}.join(' ')
+    # ([
+    #   constness ? constness : nil].compact + base
+    # ).map{|x|x.to_cpp(rs)}.join(' ')
   end
   def to_hpp rs
     base_hpp(rs) << ' ' << derived_better(rs)
@@ -853,6 +862,7 @@ end
 CtorDecl = Node.new(:args, :initializers, :body, :name) do
   def args= a; @args = Array.wrap a; end
   def initializers= i; @initializers = (i.nil? ? nil : Array.wrap( i)); end
+  def scan(*args) body.scan(*args) end
   def to_cpp rs
     parent = rs.parent
     "#{rs.indentation}#{parent.name}::#{name.nil? ?

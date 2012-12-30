@@ -117,7 +117,7 @@ class Parser < Parslet::Parser
   rule(:try_catch) {
     `try` >> space? >> brackets(program.as(:attempt)) >>
     ( space? >> `catch` >> (space >> ident_def | space? >> parens(ident_def)).as(:catch) >> 
-      space? >> brackets(program.as(:body))
+      space? >> bracket_body.as(:body)
     ).repeat(1).as(:catches)
   }
   rule(:lang_section) {
@@ -194,8 +194,10 @@ class Parser < Parslet::Parser
     ).as(:using_stmt)
   }
   rule(:namespace_decl) {
-    (`namespace` >> space >> ident.as(:namespace) >> space? >>
-    body.as(:body)).as(:namespace_decl)
+    (
+      `namespace` >> space >> ident.as(:namespace) >> space? >>
+      bracket_body.as(:body)
+    ).as(:namespace_decl)
   }
   rule(:return_stmt) {
     
@@ -365,17 +367,27 @@ class Parser < Parslet::Parser
     str(?\\) >> space
   }
 
-  rule(:conditional) {
+  rule(:range_for) { #c++11 for range(for(int i : someVec) {...})
     (
-      (`if`|`elseif`|`while`).as(:kind) >> 
+      `for` >> space >> ident_def.as(:var) >> space >> `in` >> space >> expr.as(:range) >>
+      spaced_body.as(:body)
+    ).as(:range_for)
+  }
+
+  rule(:conditional) {
+    range_for | 
+    (
+      ( `if`|`elseif`|`while`).as(:kind) >> 
         (space >> expr | space? >> parens(expr)).as(:cond) >>
-        space? >> (body | stmt).as(:body) |
-      `else`.as(:kind) >> (space? >> body | space >> stmt).as(:body) |
-      `for`.as(:kind) >> parens_oder_spacen(
-        (var_decl | auto_decl | expr >> space? >> semicolon).as(:l) >>
-        space? >> expr.as(:m) >> space? >> semicolon >>
-        space? >> expr.as(:r) )  >>
-        (space? >> body | space >> stmt).as(:body)
+        spaced_body.as(:body) |
+      
+        `else`.as(:kind) >> spaced_body.as(:body) |
+        
+        `for`.as(:kind) >> parens_oder_spacen(
+          (var_decl | auto_decl | expr >> space? >> semicolon).as(:l) >>
+          space? >> expr.as(:m) >> space? >> semicolon >>
+          space? >> expr.as(:r) 
+        ) >> spaced_body.as(:body)
     ).as(:conditional)
   }
 
@@ -442,8 +454,14 @@ class Parser < Parslet::Parser
     (dot_expr.as(:expr_stmt) >> space? >> semicolon)
     #(expr.as(:expr_stmt) >> space? >> semicolon)
   }
-  rule(:body) {
+  rule(:bracket_body) {
     brackets(program.maybe)
+  }
+  rule(:body) {
+    bracket_body | stmt
+  }
+  rule(:spaced_body) {
+    (space? >> bracket_body) | (space >> stmt)
   }
   rule(:program) {
     space? >>
