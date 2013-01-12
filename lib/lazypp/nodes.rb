@@ -44,6 +44,8 @@ Transform = Parslet::Transform.new {
   rule(ident: simple(:i), generics: simple(:g)) {
     GenericIdent.new(i, g)
   }
+  rule(pointer: simple(:p)) { :pointer }
+  rule(ref: simple(:r)) { :ref }
   rule(void: simple(:v)) { v.to_s }
 
   rule(stmts: sequence(:s)) {
@@ -52,12 +54,18 @@ Transform = Parslet::Transform.new {
   rule(stmts: simple(:s)) {
     StmtList.new Array.wrap s
   }
+  rule(bracket_stmts: sequence(:s)) {
+    BracketStmts.new s
+  }
   rule(wchar: simple(:w), string: simple(:s)) {
     StringLit.new(w, s)
   }
   rule(type: {derived: subtree(:d), base: subtree(:b)}){
     Type.new(b, [*d])
   }
+  rule(ptr: simple(:p)) { :ptr }
+  rule(ref: simple(:r)) { :ref }
+
   rule(union: { members: subtree(:m) }) {
     UnionType.new(m)
   }
@@ -505,6 +513,13 @@ StmtList = Class.new(Array) do #Node.new(:stmts) do
   end
   def at index; self[index] end
 end
+class BracketStmts < StmtList
+  def to_cpp rs, &b
+    "#{rs.indentation}{\n"+
+    super(rs.indent, &b)+
+    "#{rs.indentation}}"
+  end
+end
 Type = Node.new(:base, :derived) do
   attr_accessor :constness, :static, :inline
   attr_accessor :specifiers
@@ -527,7 +542,7 @@ Type = Node.new(:base, :derived) do
   #   } unless derived.nil?
   #   res
   # end
-  def derived_better(rs, m = :to_cpp)
+  def derived_cpp(rs, m = :to_cpp)
     #@derived_cpp ||= ( ##caching bad, this can change between header/src
       res = '%s'
       left = false
@@ -535,89 +550,62 @@ Type = Node.new(:base, :derived) do
         d = Hash[d] if d.is_a?(Array)
         next if d.empty?
 
-        if d.has_key? :constness; self.constness = d[:constness].to_s
-        #elsif d.has_key? :static; self.static = d[:static].to_s
-        elsif d.has_key? :pointer
+        # if d.has_key? :constness; self.constness = d[:constness].to_s
+        # #elsif d.has_key? :static; self.static = d[:static].to_s
+
+        case d 
+        when :ptr
           res = "*#{res}"
           left = true
-        elsif d.has_key? :ref
+        when :ref
           res = "&#{res}"
           left = true
-        elsif d.has_key?(:size) || d.has_key?(:array)
-          n = "[#{d[:size] && d[:size].send(m, rs)}]"
-          res = if left; left = false; "(#{res})#{n}"
-                else; "#{res}#{n}" end
-        elsif d.has_key? :args
-          n = "(#{[*d[:args]].map { |a| a.send(m, rs) % '' }.join', '})"
-          res = if left; left = false; "(#{res})#{n}"
-                else; "#{res}#{n}" end
-        elsif d.has_key? :specifiers
-          d[:specifiers].each do |s|
-            specifiers.add s.keys.first
-            if s.has_key? :static
-              #self.static = :static
-            elsif s.has_key? :inline
-              #self.inline = :inline
-            else ##implement me
-              binding.pry
-            end
+        when Hash
+          #if d.has_key?(:size) || d.has_key?(:array)
+          if d.has_key?(:array)
+            n = "[#{d[:array] && d[:array].send(m, rs)}]"
+            #n = "[#{d[:size] && d[:size].send(m, rs)}]"
+            res = if left; left = false; "(#{res})#{n}"
+                  else; "#{res}#{n}" end
+          elsif d.has_key? :args
+            n = "(#{[*d[:args]].map { |a| a.send(m, rs) % '' }.join', '})"
+            res = if left; left = false; "(#{res})#{n}"
+                  else; "#{res}#{n}" end
+          # elsif d.has_key? :specifiers
+          #   d[:specifiers].each do |hash|
+          #     binding.pry unless hash.instance_of?(Hash)
+          #     specifiers.add hash.keys.first
+          #   end 
+          elsif d.has_key? :const
+            res = "#{d[:const].to_s.downcase} #{res}"
+            left = true
+          elsif d.has_key? :storage
+            @storage = d[:storage].to_s.downcase unless d[:storage].nil?
+          else
+            ##what the hell is this? :o
+            binding.pry
           end
         else
-          ##what the hell is this? :o
           binding.pry
         end
       end unless derived.nil?
       res
     #)
   end
-  def derived_cpp(rs, m=:to_cpp)
-    derived_better(rs,m)
-    # @derived_cpp ||= (
-    # res = '%s'
-    # derived.each do |d|
-    #   if d.is_a?(Array) then d = Hash[*d] end
-      
-    #   if d.has_key? :constness
-    #     self.constness = d[:constness].to_s
-    #   elsif d.has_key? :static
-    #     self.static = d[:static].to_s
-    #   elsif d.has_key? :pointer
-    #     res = "(*#{res})"
-    #   elsif d.has_key? :array
-    #     res = "(#{res}[])"
-    #   elsif d.has_key? :size
-    #     res = "(#{res}[#{d[:size].to_cpp}])"
-    #   elsif d.has_key? :ref
-    #     res = "(&#{res})"
-    #   elsif d.has_key? :args
-    #     #binding.pry
-    #     res = "(#{res}(#{
-    #       [*d[:args]].map {|a| a.to_cpp % ''}.join', '
-    #     }))"
-    #   end
-    # end unless derived.nil? #derived == '' || derived == [''] ##this happens too, somehow ._.
-
-    # res )
-  end
+  def storage; @storage ? "#{@storage.p} " : '' end
   def base_hpp rs
-    derived_better rs
-    specifiers.to_a.join(' ') + base.map{|x|x.to_hpp rs}.join(' ')
-    # ([static ? static.downcase : nil,
-    #   constness ? constness.downcase : nil
-    # ].compact + base).map{|x|x.to_cpp(rs)}.join(' ')
+    derived_cpp rs
+    storage + base.map{|x|x.to_hpp rs}.join(' ')
   end
   def base_cpp rs
-    derived_better rs #just to cache it
-    specifiers.to_a.join(' ') + base.map{|x|x.to_cpp rs}.join(' ')
-    # ([
-    #   constness ? constness : nil].compact + base
-    # ).map{|x|x.to_cpp(rs)}.join(' ')
+    derived_cpp rs #just to cache it
+    storage + base.map{|x|x.to_cpp rs}.join(' ')
   end
   def to_hpp rs
-    base_hpp(rs) << ' ' << derived_better(rs)
+    base_hpp(rs) << ' ' << derived_cpp(rs)
   end
   def to_cpp rs ##note to self: % format result with the name
-    base_cpp(rs) << ' ' << derived_better(rs)
+    base_cpp(rs) << ' ' << derived_cpp(rs)
   end
 end
 TypeDecl = Node.new(:name, :type) do
@@ -885,9 +873,7 @@ CtorDecl = Node.new(:args, :initializers, :body, :name) do
       ( ': ' +
         initializers.map{|i|
           i = i[:initializer]
-          r="#{i[:member].to_cpp rs}(#{[*i[:args]].map{|a|a.to_cpp rs}.join(', ')})"
-          #binding.pry
-          r
+          "#{i[:member].to_cpp rs}(#{[*i[:args]].map{|a|a.to_cpp rs}.join(', ')})"
         }.join(', ')
       ) unless initializers.nil? 
     } #{body.nil? ? ?; : "{\n#{body.to_cpp(rs.indent)}\n#{rs.indentation}}"}"
@@ -906,15 +892,12 @@ FuncDecl = Node.new(:name, :sig, :body, :generics) do
   def generics= val; @generics = val.nil? ? nil : Array(val) end
   def scan(*args) body.scan(*args) end
   def to_cpp(rs)
-    #name = self.name.to_cpp rs
-    #name += "<#{generics.map{|_|_.to_cpp rs}.join','}>" if generics
     ## more info on functions returning functions and such at http://www.newty.de/fpt/fpt.html
     "#{"#{rs.indentation}template <#{generics.map{|x|'typename '+ x.to_cpp(rs)}.join', '}>\n" if generics}" +
-    "#{rs.indentation}#{sig.base_cpp(rs)} #{rs.parent && rs.parent.name.to_cpp+'::'}#{sig.derived_cpp(rs) % name}\n"+
-    #"(#{args.map(&:to_cpp).join', '})\n"\
-    "#{rs.indentation}{\n#{
+    "#{rs.indentation}#{sig.base_cpp(rs)} #{rs.parent && rs.parent.name.to_cpp+'::'}#{sig.derived_cpp(rs) % name}"+
+    "#{body.nil? ? ';' : "\n#{rs.indentation}{\n#{
       body.to_cpp(rs.indent) }\n"\
-    "#{rs.indentation}}"
+    "#{rs.indentation}}"}"
   end
   def to_hpp(rs)
     "#{rs.indentation}#{sig.base_hpp rs} #{sig.derived_cpp(rs, :to_hpp) % name};"

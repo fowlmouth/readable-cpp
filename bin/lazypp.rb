@@ -1,5 +1,6 @@
 #!/usr/bin/env ruby 
 require'parslet'
+require'parslet/convenience'
 require'pry'
 require'open-uri'
 require'yaml'
@@ -20,7 +21,10 @@ $inotify = Object.const_defined? :INotify
 require'find'
 
 
-class Object; def p(o=nil) Kernel.p o||self end end
+class Object; def p(o=nil) 
+  warn "Object#p call left-over at #{caller[0]}" if $VERBOSE || $DEBUG 
+  Kernel.p o||self
+end end
 begin
   $:.unshift '~/projects/cparser/lib'
   require'cparser'
@@ -83,10 +87,7 @@ opts[:I].each(&LazyPP::Package::PackageDir.method(:<<)) \
   unless opts[:I].nil?
 
 unless opts[:S].nil?
-  res = p.parse_str(opts[:S])
-  if res
-    if opts[:p]; puts p.to_cpp; end
-  end
+  puts p.parse_str(opts[:S])[0].to_cpp
 else
   if not opts[:W]
     Trollop.die :f, "File argument (-f) is required" unless opts[:P] || opts[:f] 

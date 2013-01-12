@@ -78,36 +78,73 @@ class Parser < Parslet::Parser
     ) >> (`f` | str('L')).maybe.as(:type)
   }
 
-  rule(:specifier) {
-    `static`.as(:static) | `inline`.as(:inline) |
-    `virtual`.as(:virtual) | `explicit`.as(:explicit)
-  }
+  # rule(:specifier) {
+  #   `static`.as(:static) | `inline`.as(:inline) |
+  #   `virtual`.as(:virtual) | `explicit`.as(:explicit) |
+  #   #(`const` | `mutable`).as(:const)
+  # }
 
   rule(:specifiers) {
     (
-      specifier >> (space >> specifier).repeat
+      join(specifier, space, 0)
     ).as(:specifiers)
   }
   rule(:specifiers?) { specifiers.maybe }
 
-  rule(:derived_type) {
-    (specifiers >> space?).maybe >>
-    ((`const` | `mutable`).as(:constness) >> space).maybe >>
-    ((
-      str('^').as(:pointer) |
-      str('[]').as(:array)  |
-      str('&').as(:ref)     |
-      str(?[) >> expr.as(:size) >> str(?]) |
-      func_sig_args >> space? >> str('->')
-    ) >> space?).repeat
+
+  rule(:ptr) { str(?^) }
+  rule(:ptr_eng) { `pointer to` | `ptr to` | ptr }
+  rule(:ref) { str(?&) }
+  rule(:ref_eng) { `reference to` | `ref to` | ref }
+  rule(:const) { `const` | `mutable` | `noalias` }
+  rule(:storage) { `extern` | `static` | `auto` | `register` }
+
+  ## UNFINISHED
+  ## need func_sig_args_eng and extra handling for :array_unsized in nodes.rb
+  rule(:derived_english) {
+    (storage.as(:storage) >> space).maybe >>
+    join(
+      const.as(:const) >> (space >> (ref_eng|ptr_eng)).present? |
+      ptr_eng.as(:ptr) |
+      ref_eng.as(:ref) |
+      (`array of` | str('[]')).as(:array_unsized) |
+      `array with ` >> (
+        int | 
+        #considered this to use array of for both sized/unsized
+        #(ptr_eng|ref_eng|`array`|`function`|const).absnt? >> ident
+        #also i considered only allowing an int here
+        #both are tolerable solutions imo
+        ident
+      ).as(:array).maybe | 
+      func_sig_args_eng >> space >> `returning`,
+
+      space
+    )
   }
+
+  rule(:derived_type) {
+    #(specifiers >> space?).as(:specifiers).maybe >>
+    storage.maybe.as(:storage) >> space? >>
+    join(##if ref/ptr isnt next, hopefully you're at the end of the chain so const will be in the base type,
+         ##otherwise this would be an invalid type. as a side effect, parsing will fail. <3
+      const.as(:const) >> (space? >> (ref|ptr)).present? | 
+      ptr.as(:ptr) |
+      ref.as(:ref) |
+      str(?[) >> space? >> expr.as(:array).maybe >> space? >> str(?]) |
+      func_sig_args >> space? >> str('->'),
+
+      space?
+    )
+  }
+
   rule(:type) {
     (
-      derived_type.as(:derived).maybe >> space? >>
+      derived_type.maybe.as(:derived) >> space? >>
       ( union_decl.as(:union) | 
         enum_decl.as(:enum)   |
         `struct` >> space? >> brackets(program).as(:struct) |
-        join(`in`.absnt? >> ident, space, 1) |
+        specifiers >> space
+        join(`in `.absnt? >> ident, space, 1) |
         join(
           (ident | namespaced_ident) >> generic?, 
           str('::'), 0).as(:namespaced) 
@@ -435,7 +472,7 @@ class Parser < Parslet::Parser
 
   rule(:switch_stmt) {
     (
-      `switch` >> space >> expr.as(:expr) >> space? >> 
+      `switch` >> (space? >> parens(expr) | space >> expr).as(:expr) >> space? >> 
       brackets(
         (
           (`case` >> space >> comma_list(expr) | `default`).as(:case_) >> space?>>colon>>
@@ -451,6 +488,7 @@ class Parser < Parslet::Parser
     return_stmt | class_visibility_decl | switch_stmt |
     namespace_decl | type_decl | ctor_decl | dtor_decl | oper_decl |
     conditional | lang_section | include_stmt | define_stmt |
+    brackets(program.as(:bracket_stmts)) |
     (dot_expr.as(:expr_stmt) >> space? >> semicolon)
     #(expr.as(:expr_stmt) >> space? >> semicolon)
   }

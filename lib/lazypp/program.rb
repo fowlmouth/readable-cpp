@@ -123,8 +123,8 @@ module LazyPP
     def clear; @files = {} end
 
     def parse_str str
-      [Transform.apply(raw_tree = @parser.parse(
-        str, reporter: Parslet::ErrorReporter::Deepest.new)), raw_tree]
+      [Transform.apply(raw_tree = @parser.parse_with_debug(
+        str)), raw_tree]
     rescue Parslet::ParseFailed => _
       puts _.cause.ascii_tree
     end
