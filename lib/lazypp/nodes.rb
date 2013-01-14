@@ -44,9 +44,9 @@ Transform = Parslet::Transform.new {
   rule(ident: simple(:i), generics: simple(:g)) {
     GenericIdent.new(i, g)
   }
-  rule(pointer: simple(:p)) { :pointer }
-  rule(ref: simple(:r)) { :ref }
   rule(void: simple(:v)) { v.to_s }
+  rule(ptr: simple(:p)) { :ptr }
+  rule(ref: simple(:r)) { :ref }
 
   rule(stmts: sequence(:s)) {
     StmtList.new s
@@ -60,11 +60,9 @@ Transform = Parslet::Transform.new {
   rule(wchar: simple(:w), string: simple(:s)) {
     StringLit.new(w, s)
   }
-  rule(type: {derived: subtree(:d), base: subtree(:b)}){
-    Type.new(b, [*d])
+  rule(type: {derived: subtree(:d), base: subtree(:b), storage: simple(:s)}){
+    Type.new(b, Array.wrap(d), s)
   }
-  rule(ptr: simple(:p)) { :ptr }
-  rule(ref: simple(:r)) { :ref }
 
   rule(union: { members: subtree(:m) }) {
     UnionType.new(m)
@@ -322,6 +320,12 @@ Transform = Parslet::Transform.new {
   rule(namespaced: sequence(:i)) {
     NamespaceIdent.new(i)
   }
+  rule(modifier: simple(:m), namespaced: simple(:n)) { 
+    [m, n]
+  }
+  rule(modifier: simple(:m), namespaced: sequence(:n)) {
+    [m, NamespaceIdent.new(n)]
+  }
   rule(sq_bracket_expr: simple(:x)) {
     BracketExpr.new x
   }
@@ -520,28 +524,19 @@ class BracketStmts < StmtList
     "#{rs.indentation}}"
   end
 end
-Type = Node.new(:base, :derived) do
+Type = Node.new(:base, :derived, :storage) do
   attr_accessor :constness, :static, :inline
   attr_accessor :specifiers
-  def initialize(b, d)
+  def initialize(b, d, s)
     self.base = b
     self.derived = d
     self.specifiers =Set.new
+    self.storage = s
   end
   def derived= val
     @derived = (val == [''] || val.nil?) ? nil : Array.wrap(val) 
   end
   def base= val; @base = Array.wrap val; end
-  # def derived_simple
-  #   derived_cpp
-  #   res = '%s'
-  #   derived.map { |h| 
-  #     ((h[:pointer] && '*') || (h[:ref] && '&') || nil) rescue binding.pry
-  #   }.each { |d| 
-  #     res.prepend d if d
-  #   } unless derived.nil?
-  #   res
-  # end
   def derived_cpp(rs, m = :to_cpp)
     #@derived_cpp ||= ( ##caching bad, this can change between header/src
       res = '%s'
@@ -571,16 +566,12 @@ Type = Node.new(:base, :derived) do
             n = "(#{[*d[:args]].map { |a| a.send(m, rs) % '' }.join', '})"
             res = if left; left = false; "(#{res})#{n}"
                   else; "#{res}#{n}" end
-          # elsif d.has_key? :specifiers
-          #   d[:specifiers].each do |hash|
-          #     binding.pry unless hash.instance_of?(Hash)
-          #     specifiers.add hash.keys.first
-          #   end 
+          
           elsif d.has_key? :const
             res = "#{d[:const].to_s.downcase} #{res}"
             left = true
-          elsif d.has_key? :storage
-            @storage = d[:storage].to_s.downcase unless d[:storage].nil?
+          # elsif d.has_key? :storage
+          #   @storage = d[:storage].to_s.downcase unless d[:storage].nil?
           else
             ##what the hell is this? :o
             binding.pry
@@ -592,14 +583,14 @@ Type = Node.new(:base, :derived) do
       res
     #)
   end
-  def storage; @storage ? "#{@storage.p} " : '' end
+  def storage_cpp() "#{"#{storage.to_s.downcase} " unless storage.nil?}" end
   def base_hpp rs
     derived_cpp rs
-    storage + base.map{|x|x.to_hpp rs}.join(' ')
+    storage_cpp + base.map{|x|x.to_hpp rs}.join(' ')
   end
   def base_cpp rs
     derived_cpp rs #just to cache it
-    storage + base.map{|x|x.to_cpp rs}.join(' ')
+    storage_cpp + base.map{|x|x.to_cpp rs}.join(' ')
   end
   def to_hpp rs
     base_hpp(rs) << ' ' << derived_cpp(rs)
@@ -917,7 +908,9 @@ class OperDecl < FuncDecl
   end
   def sig= val
     if pos == "post" && val.derived[0][:args] == 'void'
+      #dont remember this. what is it for?
       val.derived[0][:args] = Type.new(:int, nil)
+      binding.pry
     end
     @sig = val
   end

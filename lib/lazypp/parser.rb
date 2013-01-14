@@ -30,13 +30,18 @@ class Parser < Parslet::Parser
   end
 
   rule(:space) { 
-    (match['\s'].repeat(1) | comments).repeat(1)
+    (match['\s'].repeat(1) | comment).repeat(1)
   }
   rule(:space?) { space.maybe }
-  rule(:comments) {
+  rule(:comment) {
     str('/*') >> (str('*/').absent? >> any).repeat >> str('*/') |
     str('//') >> (eol.absent? >> any).repeat >> eol
   }
+  ##TODO save comments in program
+  rule(:space_comments) {
+    (comment.as(:comment) | match['\s'].repeat(1)).repeat(1)
+  }
+  rule(:space_comments?) { space_comments.maybe }
   rule(:string) {
     str(?L).maybe.as(:wchar) >>
     str(?") >>
@@ -84,6 +89,12 @@ class Parser < Parslet::Parser
   #   #(`const` | `mutable`).as(:const)
   # }
 
+  rule(:specifier) {
+    `inline`.as(:inline) |
+    `virtual`.as(:virtual) |
+    `explicit`.as(:explicit)
+  }
+
   rule(:specifiers) {
     (
       join(specifier, space, 0)
@@ -97,7 +108,12 @@ class Parser < Parslet::Parser
   rule(:ref) { str(?&) }
   rule(:ref_eng) { `reference to` | `ref to` | ref }
   rule(:const) { `const` | `mutable` | `noalias` }
-  rule(:storage) { `extern` | `static` | `auto` | `register` }
+  rule(:storage) { 
+    `extern` | `static` | `auto` | `register` 
+  } 
+  rule(:modifier) { 
+    `short` | `long` | `signed` | `unsigned` | const
+  }
 
   ## UNFINISHED
   ## need func_sig_args_eng and extra handling for :array_unsized in nodes.rb
@@ -123,31 +139,34 @@ class Parser < Parslet::Parser
   }
 
   rule(:derived_type) {
-    #(specifiers >> space?).as(:specifiers).maybe >>
-    storage.maybe.as(:storage) >> space? >>
     join(##if ref/ptr isnt next, hopefully you're at the end of the chain so const will be in the base type,
          ##otherwise this would be an invalid type. as a side effect, parsing will fail. <3
       const.as(:const) >> (space? >> (ref|ptr)).present? | 
       ptr.as(:ptr) |
       ref.as(:ref) |
-      str(?[) >> space? >> expr.as(:array).maybe >> space? >> str(?]) |
+      str(?[) >> space? >> expr.maybe.as(:array) >> space? >> str(?]) |
       func_sig_args >> space? >> str('->'),
 
       space?
     )
   }
 
+
   rule(:type) {
     (
+      storage.maybe.as(:storage) >> space? >>
       derived_type.maybe.as(:derived) >> space? >>
       ( union_decl.as(:union) | 
         enum_decl.as(:enum)   |
         `struct` >> space? >> brackets(program).as(:struct) |
-        specifiers >> space
-        join(`in `.absnt? >> ident, space, 1) |
+        #how did this get here? ._.
+        #specifiers >> space
+        (modifier.as(:modifier) >> space).maybe >>
         join(
           (ident | namespaced_ident) >> generic?, 
-          str('::'), 0).as(:namespaced) 
+          str('::'), 0).as(:namespaced)
+        #join(`in `.absnt? >> ident, space, 1) |
+        
       ).as(:base)
     ).as(:type)
   }
