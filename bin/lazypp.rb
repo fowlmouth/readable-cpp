@@ -9,7 +9,7 @@ require'set'
 require'fileutils'
 require'trollop'
 
-%w[common parser nodes package program].
+%w[common parser nodes transformer package program].
 each do |f| require_relative '../lib/lazypp/'+f end
 
 begin
@@ -87,7 +87,15 @@ opts[:I].each(&LazyPP::Package::PackageDir.method(:<<)) \
   unless opts[:I].nil?
 
 unless opts[:S].nil?
-  puts p.parse_str(opts[:S])[0].to_cpp
+  r = p.parse_str(opts[:S])
+  if r then
+    puts r[0].to_cpp
+    if opts[:t] 
+      ap r[1]
+    end
+  else
+    puts '=('
+  end
 else
   if not opts[:W]
     Trollop.die :f, "File argument (-f) is required" unless opts[:P] || opts[:f] 

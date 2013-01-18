@@ -90,9 +90,7 @@ class Parser < Parslet::Parser
   # }
 
   rule(:specifier) {
-    `inline`.as(:inline) |
-    `virtual`.as(:virtual) |
-    `explicit`.as(:explicit)
+    (`inline` | `virtual` | `explicit`).as(:ident)
   }
 
   rule(:specifiers) {
@@ -159,9 +157,7 @@ class Parser < Parslet::Parser
       ( union_decl.as(:union) | 
         enum_decl.as(:enum)   |
         `struct` >> space? >> brackets(program).as(:struct) |
-        #how did this get here? ._.
-        #specifiers >> space
-        (modifier.as(:modifier) >> space).maybe >>
+        (modifier.as(:ident) >> space).repeat(0) >>
         join(
           (ident | namespaced_ident) >> generic?, 
           str('::'), 0).as(:namespaced)
@@ -245,7 +241,7 @@ class Parser < Parslet::Parser
   rule(:using_stmt) {
     (
       `using` >> space >> (`namespace`.as(:ns) >> space).maybe >>
-      (namespaced_ident | ident).as(:using_namespace) >>
+      comma_list((namespaced_ident | ident).as(:using_namespace)) >>
       (eol | space? >> semicolon)
     ).as(:using_stmt)
   }
@@ -348,12 +344,35 @@ class Parser < Parslet::Parser
     str(?<) >> space? >> comma_list(ident.as(:ident)) >>
     space? >> str(?>)
   }
+  rule(:lambda_func) {
+    ## [captures](params)->returns{body}
+    #[foo,&bar](x: &int)->void{return;}
+    (
+      str(?[) >> space? >>
+        comma_list(
+          str(?&).maybe.as(:ref) >> space? >> ident.as(:name)
+        ) >>
+      space? >> str(?]) >> 
+      space? >>
+      l_paren >> space? >> 
+        ident_defs.as(:params) >>
+      space? >> r_paren >>
+      space? >> 
+      str('->') >> space? >> type.as(:returns) >>
+      space? >>
+      bracket_body.as(:body)
+    ).as(:lambda_func)
+  }
   rule(:func_decl) {
     (
       `func` >> space >> ident.as(:name) >> 
       generic_identifiers.maybe.as(:generics) >> colon_is? >>
-      func_sig_nosave.present? >> type.as(:sig) >>
-      space? >> (body.as(:body) | semicolon)
+      func_sig_nosave.present? >> 
+      (specifiers >> space?).maybe >> type.as(:sig) >>
+      space? >> (
+        body.as(:body) | 
+        (str(?=) >> space? >> str('0')).as(:eq_0).maybe >> semicolon
+      )
     ).as(:func_decl)
   }
   rule(:func_sig_nosave) { ##func_sig.present? didnt work, but this does..
@@ -393,11 +412,14 @@ class Parser < Parslet::Parser
     join(base_expr.as(:expr), access.as(:access)).as(:dot_expr)
   }
   rule(:func_call_new) {
-      (
-        str(?!) | 
-        parens(comma_list(expr).maybe) | 
-        space_nonterminal >> comma_list(expr)
-      ).as(:args)
+    (
+      str(?<) >> space? >> comma_list(type).as(:generics) >> space? >> str(?>) #>> space_nonterminal.maybe
+    ).maybe >>
+    (
+      str(?!) | 
+      parens(comma_list(expr).maybe) | 
+      space_nonterminal >> comma_list(expr)
+    ).as(:args)
   }
   rule(:func_call) {
     (namespaced_ident | dot_ident | expr).as(:func) >>
@@ -459,13 +481,13 @@ class Parser < Parslet::Parser
   rule(:base_expr) {
     (operator_prefix.as(:op) >> space?).maybe.as(:prefix) >>
     (
-      float | int | string | char | cast | namespaced_ident | 
-      dot_ident | 
+      float | int | string | char | cast | namespaced_ident | dot_ident | 
       brackets(comma_list(expr)).as(:struct_lit) |
       paren_tagged(base_expr, :parens)
     ).as(:expr) >>
     (operator_postfix | sq_bracket_expr).as(:op).maybe.as(:postfix) >>
-    ((space? >> operator).absent? >> func_call_new).maybe >> 
+    ((operator.absent? | str('<<').absent? >> str(?<).present?) >> func_call_new).maybe >>
+    #((space? >> operator).absent? >> func_call_new).maybe >> 
     ( space? >> 
       (
         str(??).as(:ternary) >> space? >> expr.as(:true) >> 
@@ -485,8 +507,10 @@ class Parser < Parslet::Parser
     ).as(:sq_bracket_expr)
   }
   rule(:cast) {
-    `cast` >> str(?<) >> type.as(:type) >> str(?>) >> 
-    parens(expr)
+    (
+      `cast` >> str(?<) >> type.as(:type) >> str(?>) >> 
+      parens(expr.as(:expr))
+    ).as(:cast)
   }
 
   rule(:switch_stmt) {

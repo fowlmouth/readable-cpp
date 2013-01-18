@@ -1,6 +1,7 @@
+require'parslet/convenience'
+require'erb'
 module LazyPP
   class Unit < Struct.new(:program, :file, :contents, :tree, :raw_tree, :time)
-  #Unit = Class.new(Struct.new(:program, :file, :contents, :tree, :raw_tree, :time)) do
     attr_accessor :cpp
     def initialize prog, file, opts={}
       super prog, file, nil, nil, nil, nil
@@ -13,15 +14,14 @@ module LazyPP
     def read
       return if @read
       warn "reading "+file
-      self.contents = File.read(file)
-      if t = program.parse_str(self.contents)
-        self.tree = t[0]
-        self.raw_tree = t[1]
-      else
-        self.tree, self.raw_tree=nil, nil
-      end
+      #self.contents = File.read(file)
+      self.contents = ERB.new(File.read(file)).result(binding)
+      t = program.parse_str(self.contents)
+      self.tree, self.raw_tree = t
       self.time = Time.now
       @read = true
+
+      self.tree
     end
     def outname
       basename + '.cpp'
@@ -54,7 +54,15 @@ module LazyPP
         f.puts to_cpp(RenderState.new(program: program, gen_header: gen_header))
       end
     end
-    def to_cpp(*args); @cpp ||= tree.to_cpp(*args) end
+    def to_cpp(*args)
+      @cpp ||= (
+        if gen_header ##filter out top-level declarations so they only appear in the header
+          tree.to_cpp(*args) { |n| !(n.is_a?(VarDeclInitializer) || n.is_a?(VarDeclSimple)) }
+        else
+          tree.to_cpp(*args) 
+        end
+      )
+    end
     def to_hpp(*args); @hpp ||= tree.to_hpp(*args) end
   end
 
@@ -108,8 +116,9 @@ module LazyPP
     private
     def parse!
       @files.each do |f, u|
-        u.read
-        u.scan
+        if u.read
+          u.scan
+        end
       end
       if @scheduled.size > 0
         warn "#{@scheduled.size} scheduled files: "+ @scheduled.keys.join(', ')
@@ -123,10 +132,10 @@ module LazyPP
     def clear; @files = {} end
 
     def parse_str str
-      [Transform.apply(raw_tree = @parser.parse_with_debug(
-        str)), raw_tree]
-    rescue Parslet::ParseFailed => _
-      puts _.cause.ascii_tree
+      raw_tree = @parser.parse(str, reporter: Parslet::ErrorReporter::Deepest.new)
+      [Transform.apply(raw_tree), raw_tree]
+    rescue Parslet::ParseFailed => error
+      puts error.cause.ascii_tree
     end
 
     def print_trees
@@ -182,7 +191,8 @@ module LazyPP
       linker_opts = @pkgs.map { |p| 
         p.linker or nil 
       }.compact.join' '
-      compile_opts = cpp0x? ? '-std=gnu++0x' : nil
+      compile_opts = @pkgs.map { |p| p.compile_opts }.compact.join(' ')
+      compile_opts += ' -std=gnu++0x' if cpp0x?
 
       # "#!/bin/sh \n" +
       # cpps.map{|f|"g++ -c #{f} #{compile_opts} &&\n"}.join +

@@ -12,7 +12,7 @@ module LazyPP
       File.expand_path('~/.config/cpptranny/pkg'),
       Dir.pwd]
     @packages = {}
-    attr_reader :includes, :linker, :name
+    attr_reader :includes, :linker, :name, :compile_opts
     def self.new name
       name = name.map(&:downcase).join(?/)
       @packages[name] ||= super(name)
@@ -23,10 +23,11 @@ module LazyPP
         dat = YAML.load_file f
         @includes = dat['include'].nil? ? nil : Array.wrap(dat['include'])
         @linker   = dat['linker']
+        @compile_opts = dat['compile_opts']
         @name     = name
         @flags = Array.wrap(dat['flags'] || nil).compact
       else
-        raise Errno::ENOENT.new f
+        raise "Could not find package #{name}"
       end
     end
 
