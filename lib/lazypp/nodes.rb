@@ -553,13 +553,12 @@ LambdaFunc = Node.new(:captures, :params, :returns, :body) {
   def captures=(val) @captures = Array.wrap_nil val end
   def params=(val) @params = Array.wrap_nil val end
   def to_cpp(rs)
-    binding.pry
     "[#{
       captures.join(', ') unless captures.nil?
     }](#{
       params.map{|p|p.to_cpp rs}.join', ' unless params.nil?
     })#{
-      " -> #{returns.to_cpp(rs) % ''} " unless returns.nil?
+      "->#{returns.to_cpp(rs) % ''}" unless returns.nil?
     }{#{body.to_cpp(rs)}}"
   end
 }
