@@ -321,7 +321,7 @@ class ClassDecl < TypeDecl
   end
   def to_cpp(rs = RenderState.new())
     rs = rs.new(parent: self)
-    "#{to_hpp(rs) unless rs.gen_header?}" +
+    "#{to_hpp(rs)+"\n" unless rs.gen_header?}" +
     (body.nil? ? '' : body.to_cpp(rs){|n|
       if n.is_a?(VarDeclInitializer) || n.is_a?(VarDeclSimple) ||
          n.is_a?(TypeDecl)
@@ -548,8 +548,32 @@ FloatLiteral = Node.new(:value, :type) do
 end
 
 Namespace = Node.new(:name, :body) do
-  def to_cpp(*)
-    "namespace #{name} {\n" << body.to_cpp << '}'
+  def to_cpp(rs, &b)
+    "namespace #{name} {\n" << body.to_cpp(rs,&b) << "\n}"
+  end
+end
+DtorDecl = Node.new(:stmts, :specifier) do
+  def specifier= val
+    @specifier = if val.nil? then ''
+    else
+      val.to_s + ' '
+    end
+  end
+
+  def to_cpp rs
+    #parent = rs.parent
+    parentname = rs.parent.name.to_cpp rs
+    "#{rs.indentation}#{parentname}::~#{parentname}() \n"\
+    "#{rs.indentation}{\n"\
+    "#{stmts.to_cpp(rs.indent)}\n"\
+    "#{rs.indentation}}"
+  end
+  def to_hpp rs
+    "#{rs.indentation}#{
+      specifier unless specifier.nil?
+    }~#{
+      rs.parent.name.to_hpp(rs)
+    }();"
   end
 end
 CtorDecl = Node.new(:args, :initializers, :body, :name) do
@@ -593,7 +617,6 @@ FuncDecl = Class.new Node.new(:name, :sig, :body, :generics, :specifiers) do
     ## more info on functions returning functions and such at http://www.newty.de/fpt/fpt.html
     "#{"#{rs.indentation}template <#{generics.map{|x|'typename '+ x.to_cpp(rs)}.join', '}>\n" if generics}" +
     "#{rs.indentation}#{
-      specifiers.map{|s|s.to_cpp rs}.join(' ')+' ' unless specifiers.nil?}#{
       sig.base_cpp(rs)} #{
       sig.derived_cpp(rs) % "#{rs.parent && rs.parent.name.to_cpp+'::'}#{name}"}"+
     "#{body == :EQ0 ? 
@@ -606,7 +629,9 @@ FuncDecl = Class.new Node.new(:name, :sig, :body, :generics, :specifiers) do
     }"
   end
   def to_hpp(rs)
-    "#{rs.indentation}#{sig.base_hpp rs} #{sig.derived_cpp(rs, :to_hpp) % name};"
+    "#{rs.indentation}#{
+      specifiers.map{|s|s.to_hpp rs}.join(' ')+' ' if !specifiers.nil?}#{
+    sig.base_hpp rs} #{sig.derived_cpp(rs, :to_hpp) % name};"
   end
 end
 class OperDecl < FuncDecl

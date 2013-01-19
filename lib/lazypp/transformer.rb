@@ -24,6 +24,9 @@ Transform = Parslet::Transform.new {
   rule(type: {derived: subtree(:d), base: subtree(:b), storage: simple(:s)}){
     Type.new(b, Array.wrap(d), s)
   }
+  rule(type: {derived: subtree(:d), base: subtree(:b)}) {
+    Type.new b, Array.wrap(d), nil
+  }
 
   rule(union: { members: subtree(:m) }) {
     UnionType.new(m)
@@ -173,6 +176,9 @@ Transform = Parslet::Transform.new {
   }
   rule(ctor_decl: subtree(:c)) {
     CtorDecl.new(c[:args], c[:initializers], c[:body], c[:name])
+  }
+  rule(dtor_decl: subtree(:d)) {
+    DtorDecl.new(d[:body], d[:specifier] || nil)
   }
   rule(parens: simple(:x)) { 
     ParenExpr.new x

@@ -152,7 +152,7 @@ class Parser < Parslet::Parser
 
   rule(:type) {
     (
-      storage.maybe.as(:storage) >> space? >>
+      (storage.as(:storage) >> space).maybe >>
       derived_type.maybe.as(:derived) >> space? >>
       ( union_decl.as(:union) | 
         enum_decl.as(:enum)   |
@@ -271,8 +271,12 @@ class Parser < Parslet::Parser
     ).as(:ctor_decl)
   }
   rule(:dtor_decl) {
-    `dtor` >> space? >> (colon >> space?).maybe >>
-    body
+    (
+      `dtor` >> space? >> (colon >> space?).maybe >>
+      (specifier.as(:specifier) >> space?).maybe >>
+      (parens(spaced?(`void`)) >> space?).maybe >>
+      body.as(:body)
+    ).as(:dtor_decl)
   }
 
   rule(:operator) {
@@ -486,7 +490,7 @@ class Parser < Parslet::Parser
       paren_tagged(base_expr, :parens)
     ).as(:expr) >>
     (operator_postfix | sq_bracket_expr).as(:op).maybe.as(:postfix) >>
-    ((operator.absent? | str('<<').absent? >> str(?<).present?) >> func_call_new).maybe >>
+    (((space >> operator | operator).absent? | str('<<').absent? >> str(?<).present?) >> func_call_new).maybe >>
     #((space? >> operator).absent? >> func_call_new).maybe >> 
     ( space? >> 
       (
