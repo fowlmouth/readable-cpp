@@ -352,18 +352,16 @@ class Parser < Parslet::Parser
     ## [captures](params)->returns{body}
     #[foo,&bar](x: &int)->void{return;}
     (
-      str(?[) >> space? >>
-        comma_list(
-          str(?&).maybe.as(:ref) >> space? >> ident.as(:name)
-        ) >>
-      space? >> str(?]) >> 
-      space? >>
-      l_paren >> space? >> 
-        ident_defs.as(:params) >>
-      space? >> r_paren >>
-      space? >> 
-      str('->') >> space? >> type.as(:returns) >>
-      space? >>
+      str(?[) >> 
+        spaced?(
+          comma_list(
+            str(?&).maybe.as(:ref) >> space? >> ident.as(:name)
+          ).maybe
+        ).as(:captures) >>
+      str(?]) >> 
+      spaced?(func_sig_args) >>
+      #spaced?(parens(spaced?(ident_defs.as(:params)))) >>
+      (str('->') >> space? >> type >> space?).maybe.as(:returns) >>
       bracket_body.as(:body)
     ).as(:lambda_func)
   }
@@ -486,6 +484,7 @@ class Parser < Parslet::Parser
     (operator_prefix.as(:op) >> space?).maybe.as(:prefix) >>
     (
       float | int | string | char | cast | namespaced_ident | dot_ident | 
+      lambda_func |
       brackets(comma_list(expr)).as(:struct_lit) |
       paren_tagged(base_expr, :parens)
     ).as(:expr) >>

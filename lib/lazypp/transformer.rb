@@ -183,6 +183,13 @@ Transform = Parslet::Transform.new {
   rule(parens: simple(:x)) { 
     ParenExpr.new x
   }
+  rule(ref: simple(:r), name: simple(:n)) {
+    "#{r}#{n}"
+  }
+  rule(lambda_func: {
+    captures: simple(:c), args: subtree(:p), returns: simple(:r), body: simple(:b)}) {
+    LambdaFunc.new(c.empty? ? nil : c, Array.wrap(p), r, b)
+  }
   rule(prefix: simple(:p), expr: simple(:x), postfix: simple(:pp),
     ternary: simple(:t), true: simple(:xT), false: simple(:xF)) {
     TernaryExpr.new(Expr.new(p,x,pp), xT, xF)
