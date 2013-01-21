@@ -10,6 +10,12 @@ module LazyPP
     end
     def gen_header; @opts[:gen_header] end 
     def gen_header= val; @opts[:gen_header]= val end
+    def debugger_required!
+      @opts[:debugger_required?] = true
+    end
+    def debugger_required?
+      @opts[:debugger_required?]
+    end
     def build?; @opts[:build] end 
     def read
       return if @read
@@ -112,6 +118,9 @@ module LazyPP
     def parse
       parse!
     end
+    def rule r
+      parser.send(r.to_s.downcase)
+    end
 
     private
     def parse!
@@ -193,12 +202,15 @@ module LazyPP
       }.compact.join' '
       compile_opts = @pkgs.map { |p| p.compile_opts }.compact.join(' ')
       compile_opts += ' -std=gnu++0x' if cpp0x?
+      ( warn "debugger enabled (-g)"
+        compile_opts.prepend '-g '
+      ) if @files.values.any?(&:debugger_required?)
 
       # "#!/bin/sh \n" +
       # cpps.map{|f|"g++ -c #{f} #{compile_opts} &&\n"}.join +
       # "g++ #{objs.join ' '} -o #{@files.first[1].basename} #{linker_opts} \n"
       "#!/bin/sh\n" \
-      "g++ -o #{@files.first[1].basename} #{compile_opts} #{cpps.join' '} #{linker_opts}\n"
+      "g++ -o #{@files.first[1].basename} #{cpps.join' '} #{compile_opts} #{linker_opts}\n"
     end
   end
 end

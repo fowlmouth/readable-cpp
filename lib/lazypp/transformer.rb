@@ -5,10 +5,17 @@ Transform = Parslet::Transform.new {
   rule(ident: simple(:i), generics: simple(:g)) {
     GenericIdent.new(i, g)
   }
+  rule(ident: simple(:i), generics: sequence(:g)) {
+    GenericIdent.new i, g
+  }
   rule(void: simple(:v)) { v.to_s }
   rule(ptr: simple(:p)) { :ptr }
   rule(ref: simple(:r)) { :ref }
 
+  rule(ident_eq: { ident: simple(:i), dot_expr: simple(:x) }) {
+    InfixExpr.new(i, '=', x)
+  }
+  rule(ident_eq: simple(:i)) { i }
   rule(stmts: sequence(:s)) {
     StmtList.new s
   }

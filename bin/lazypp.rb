@@ -72,6 +72,7 @@ Usage:
   opt :r, "run", default: false
   opt :P, "start a pry session", default: false
   opt :S, "parse a string", type: :string
+  opt :R, "specify a rule for parsing (use with -S)", type: :string
   opt :H, "force build headers", default: false
   opt :B, "set build directory", type: :string, default: './build'
   opt :I, "add package dir", type: :strings
@@ -82,19 +83,29 @@ opts[:W] ||= false
 p = LazyPP::Program.new
 res = nil
 
+try = proc do |str| 
+  (r = p.parse_str(str)) ?
+    (puts r[0].to_cpp; r[0])   :
+    nil
+end
+
 p.build_dir = opts[:B] 
 opts[:I].each(&LazyPP::Package::PackageDir.method(:<<)) \
   unless opts[:I].nil?
 
 unless opts[:S].nil?
-  r = p.parse_str(opts[:S])
-  if r then
-    puts r[0].to_cpp
-    if opts[:t] 
-      ap r[1]
-    end
+  if opts[:R] && (rule = (p.parser.send(opts[:R].downcase) rescue nil))
+    ap rule.parse(opts[:S])
   else
-    puts '=('
+    r = p.parse_str(opts[:S])
+    if r then
+      puts r[0].to_cpp
+      if opts[:t] 
+        ap r[1]
+      end
+    else
+      puts '=('
+    end
   end
 else
   if not opts[:W]

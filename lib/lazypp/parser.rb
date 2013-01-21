@@ -12,11 +12,11 @@ class Parser < Parslet::Parser
     space? >> rule >> space?
   end
   def parens_oder_spacen(rule)
-    l_paren >> space? >> rule >> space? >> r_paren |
+    parens(rule) >>
     space >> rule
   end
   def parens(rule)
-    l_paren >> space? >> rule >> space? >> r_paren
+    l_paren >> spaced?(rule) >> r_paren
   end
   def parens?(rule)
     parents(rule) | rule
@@ -33,9 +33,14 @@ class Parser < Parslet::Parser
     (match['\s'].repeat(1) | comment).repeat(1)
   }
   rule(:space?) { space.maybe }
+  rule(:comment_inline) {
+    str('//') >> (match['\n'].absent? >> any).repeat(0) >> match['\n']
+  }
+  rule(:comment_multiline) {
+    str('/*') >> (str('*/').absent? >> any).repeat >> str('*/') 
+  }
   rule(:comment) {
-    str('/*') >> (str('*/').absent? >> any).repeat >> str('*/') |
-    str('//') >> (eol.absent? >> any).repeat >> eol
+    comment_multiline | comment_inline
   }
   ##TODO save comments in program
   rule(:space_comments) {
@@ -68,6 +73,11 @@ class Parser < Parslet::Parser
   }
 
   rule(:ident) { (match['A-Za-z_'] >> match['A-Za-z0-9_'].repeat).as(:ident) }
+  rule(:keyword) {
+    ( `return` | `for` | `while` | `if` | `elseif` | `else` |
+      `anon` | `ctor` | `dtor` | `in` | `as` | `is` 
+    ) >> ident.absent?
+  }
   rule(:namespaced_ident) { join(ident, str('::'), 1).as(:namespace) }
   #TODO another rule for just generic ident for function/class decls
   rule(:generic?) {
@@ -101,8 +111,8 @@ class Parser < Parslet::Parser
   rule(:specifiers?) { specifiers.maybe }
 
 
-  rule(:ptr) { str(?^) }
-  rule(:ptr_eng) { `pointer to` | `ptr to` | ptr }
+  rule(:ptr) { str(?^)|str(?*) }
+  rule(:ptr_eng) { `pointer to` | `ptr to` | `ptr` | ptr }
   rule(:ref) { str(?&) }
   rule(:ref_eng) { `reference to` | `ref to` | ref }
   rule(:const) { `const` | `mutable` | `noalias` }
@@ -121,16 +131,15 @@ class Parser < Parslet::Parser
       const.as(:const) >> (space >> (ref_eng|ptr_eng)).present? |
       ptr_eng.as(:ptr) |
       ref_eng.as(:ref) |
-      (`array of` | str('[]')).as(:array_unsized) |
-      `array with ` >> (
-        int | 
-        #considered this to use array of for both sized/unsized
-        #(ptr_eng|ref_eng|`array`|`function`|const).absnt? >> ident
-        #also i considered only allowing an int here
-        #both are tolerable solutions imo
-        ident
-      ).as(:array).maybe | 
-      func_sig_args_eng >> space >> `returning`,
+      ##Think I will go with this, 
+      ## array of 5 .. or array of (CONSTEXPR) .. or array of ..
+      str(?[)>> spaced?(expr.maybe.as(:array)) >> str(?]) |
+      `array of` >> (
+        (space >> int.as(:array) | space? >> parens(expr).as(:array)) |
+        any.present?.as(:array_unsized)
+      ) |
+      (`function` >> `s`.maybe >> (space >> `taking`).maybe >> space?).maybe >>
+        func_sig_args >> space? >> (str('->') | `return` >> (`s`|`ing`)),
 
       space
     )
@@ -149,15 +158,17 @@ class Parser < Parslet::Parser
     )
   }
 
-
   rule(:type) {
     (
       (storage.as(:storage) >> space).maybe >>
-      derived_type.maybe.as(:derived) >> space? >>
+      (
+        derived_english.as(:derived) >> space | 
+        derived_type.maybe.as(:derived) >> space?
+      ) >>
       ( union_decl.as(:union) | 
         enum_decl.as(:enum)   |
         `struct` >> space? >> brackets(program).as(:struct) |
-        (modifier.as(:ident) >> space).repeat(0) >>
+        (modifier.as(:ident) >> space_nonterminal >> keyword.absent? >> ident.present?).repeat(0) >>
         join(
           (ident | namespaced_ident) >> generic?, 
           str('::'), 0).as(:namespaced)
@@ -187,25 +198,31 @@ class Parser < Parslet::Parser
       expr.as(:value) >> space? >> semicolon
     ).as(:auto_decl)
   }
-  rule(:var_decl) {
+  rule(:anon_decl) {
     (
-      `var` >> space >> 
-      ##single assign
-      ( 
-        (
-          ident.as(:name) >> colon_is  >>
-          type.as(:type) >> spaced?(str(?=) >> space? >> expr.as(:expr))
-        ).as(:var_decl) |
-      ##multiple decl/initialize
-        comma_list(
-          (
-            comma_list(ident.as(:name) >> parens(comma_list(expr).maybe).maybe.as(:constructor)).as(:names) >>
-            colon_is >> type.as(:type)
-          ).as(:var_decl)
-        ).as(:stmts)
-      ) >>
-      space? >> semicolon
-    )#.as(:var_decl)
+      `anon` >> (
+        space >> (
+          `namespace` >> space? >> bracket_body.as(:namespace) |
+          `union` >> space? >> bracket_body.as(:union)
+        )
+      ) >> semicolon_terminal
+    ).as(:anon_decl)
+  }
+  rule(:var_decl) {
+    `var` >> space >> 
+    join(
+      ( #decl/assign
+        ident.as(:name) >> colon_is  >>
+        type.as(:type) >> spaced?(str(?=)) >> expr.as(:expr) |
+        #decl/initialize
+        comma_list(ident.as(:name) >> parens(comma_list(expr).maybe).maybe.as(:constructor)).as(:names) >>
+        colon_is >> type.as(:type)
+      ).as(:var_decl),
+
+      spaced?(comma) ##I wanted to allow space here but it fails for
+        ## "var x: short \n  foo, bar: int" #=> "short foo x; int bar;"
+        ## would require the spacing in TYPE to be nonterminal
+    ).as(:stmts) >> semicolon_terminal
   }
   rule(:class_visibility_decl) {
     visibility.as(:visibility_stmt) >> space? >> colon >> eol
@@ -217,6 +234,9 @@ class Parser < Parslet::Parser
       (class_decl | type).as(:type) >>
       (space? >> str(';') | eol | any.absnt?)
     ).as(:type_decl)
+  }
+  rule(:semicolon_terminal) {
+    (space? >> semicolon) | eol | any.absent?
   }
   rule(:import_stmt) {
     `import` >> space >> join(ident, str(?/)).as(:import_pkg)
@@ -307,7 +327,7 @@ class Parser < Parslet::Parser
   rule(:enum_decl) {
     `enum` >> space? >> 
     brackets(
-      join(ident_eq, space? >> (comma | semicolon) >> space?).as(:fields)
+      join(ident_eq.as(:ident_eq), spaced?(comma | semicolon)).as(:fields)
     )
   }
   rule(:ident_eq) {
@@ -378,7 +398,8 @@ class Parser < Parslet::Parser
     ).as(:func_decl)
   }
   rule(:func_sig_nosave) { ##func_sig.present? didnt work, but this does..
-    (specifiers >> space?).maybe >> parens(`void` | `any` | ident_defs | comma_list(type)) >>
+    (specifiers >> space?).maybe >> (storage >> space?).maybe >>
+    parens(`void` | `any` | ident_defs | comma_list(type)) >>
     spaced?(str('->')) >> type
   }
   rule(:func_sig) {
@@ -393,7 +414,10 @@ class Parser < Parslet::Parser
     ).as(:args)
   }
   rule(:func_sig_args) {
-    parens(
+    parens(spaced?(func_sig_args_innards | r_paren.present?.as(:void)))
+  }
+  rule(:func_sig_args_innards) {
+    (
       `void`.as(:void) |
       `any`.as(:any)   |
       ident_defs       |
@@ -401,9 +425,8 @@ class Parser < Parslet::Parser
     ).as(:args)
   }
 
-  rule(:eol) {
-    match[' \t'].repeat >> match['\n']
-  }
+  rule(:newline) { match['\n'] | any.absent? }
+  rule(:eol) { space_terminal }
 
   rule(:access) do str('.*') | str('.') | str('->') end
   rule(:dot_ident) {
@@ -420,6 +443,10 @@ class Parser < Parslet::Parser
     (
       str(?!) | 
       parens(comma_list(expr).maybe) | 
+      space_nonterminal? >> str(?$) >>
+      space_nonterminal? >> join(
+          expr, space_nonterminal?>>comma>>space_nonterminal?
+        ) |
       space_nonterminal >> comma_list(expr)
     ).as(:args)
   }
@@ -442,10 +469,15 @@ class Parser < Parslet::Parser
     #   ), access.as(:access), 0
     # ).as(:dot_ident).as(:func_call)
   }
-  rule(:space_nonterminal) {
-    match[' \t'].repeat(1) >> (str(?\\) >> space).maybe |
-    str(?\\) >> space
+  # rule(:space_nonterminal) {
+  #   match[' \t'].repeat(1) >> (str(?\\) >> (match['\n'].absent? >> any).repeat(0) >> eol >> space_nonterminal).maybe |
+  #   str(?\\) >> eol >> space_nonterminal
+  # }
+  rule(:space_nonterminal?) { space_nonterminal.maybe }
+  rule(:space_nonterminal) { 
+    (comment | match[' \t']).repeat(1) >> (str(?\\) >> space?).maybe
   }
+  rule(:space_terminal) { match[' \t'].repeat(0) >> newline }
 
   rule(:range_for) { #c++11 for range(for(int i : someVec) {...})
     (
@@ -535,7 +567,7 @@ class Parser < Parslet::Parser
     namespace_decl | type_decl | ctor_decl | dtor_decl | oper_decl |
     conditional | lang_section | include_stmt | define_stmt |
     brackets(program.as(:bracket_stmts)) |
-    (dot_expr.as(:expr_stmt) >> space? >> semicolon)
+    (dot_expr.as(:expr_stmt) >> semicolon_terminal)
     #(expr.as(:expr_stmt) >> space? >> semicolon)
   }
   rule(:bracket_body) {

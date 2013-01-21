@@ -14,21 +14,29 @@ module LazyPP
     @packages = {}
     attr_reader :includes, :linker, :name, :compile_opts
     def self.new name
-      name = name.map(&:downcase).join(?/)
+      name = Array.wrap(name).map(&:downcase).join(?/)
       @packages[name] ||= super(name)
     end
 
     def initialize name
       if f = find_pkg( name)
+        @name = name
         dat = YAML.load_file f
         @includes = dat['include'].nil? ? nil : Array.wrap(dat['include'])
-        @linker   = dat['linker']
-        @compile_opts = dat['compile_opts']
-        @name     = name
+        @linker   = parse_sh(dat['linker'] || '')
+        @compile_opts = parse_sh(dat['compile_opts'] || '')
         @flags = Array.wrap(dat['flags'] || nil).compact
       else
-        raise "Could not find package #{name}"
+        abort "Could not find package #{name}. Searched in #{PackageDir.join', '}"
       end
+    end
+
+    def parse_sh txt
+      if txt.respond_to? :map then txt.map { |t| parse_sh t }
+      elsif txt =~ /^`(.+)`/ then 
+        warn "Executing sh commands from package #{name}: `#$1`"
+        %x{#$1}#.gsub(/;/,'') ##<- temporary fix for pkg-config returning -L;/path/; 
+      else txt end
     end
 
     def cpp0x?() @flags.include?('c++0x') || @flags.include?('cpp0x') end

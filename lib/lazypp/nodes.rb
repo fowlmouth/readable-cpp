@@ -233,6 +233,9 @@ Type = Node.new(:base, :derived, :storage) do
     self.specifiers =Set.new
     self.storage = s
   end
+  def no_storage()
+    Type.new(base, derived, nil)
+  end
   def derived= val
     @derived = (val == [''] || val.nil?) ? nil : Array.wrap(val) 
   end
@@ -257,7 +260,7 @@ Type = Node.new(:base, :derived, :storage) do
           left = true
         when Hash
           #if d.has_key?(:size) || d.has_key?(:array)
-          if d.has_key?(:array)
+          if d.has_key?(:array) || d.has_key?(:array_unsized)
             n = "[#{d[:array] && d[:array].send(m, rs)}]"
             #n = "[#{d[:size] && d[:size].send(m, rs)}]"
             res = if left; left = false; "(#{res})#{n}"
@@ -272,6 +275,7 @@ Type = Node.new(:base, :derived, :storage) do
             left = true
           # elsif d.has_key? :storage
           #   @storage = d[:storage].to_s.downcase unless d[:storage].nil?
+          
           else
             ##what the hell is this? :o
             binding.pry
@@ -338,7 +342,7 @@ class ClassDecl < TypeDecl
     "#{type} #{name} #{
       ": #{
         parents.map { |p| 
-          "#{p[:vis].to_cpp(rs)} #{p[:parent].to_cpp}"
+          "#{p[:vis].to_cpp(rs)} #{p[:parent].to_cpp(rs)}"
         }.join', '} \n" unless parents.nil?}" +
       (body.nil? ? ';' : "{\n#{
         body.to_hpp(rs.indent) unless body.nil?
@@ -418,8 +422,14 @@ GenericIdent = Node.new(:ident, :generic) do
     "#{ident.to_cpp(rs)}<#{generic.map{|n| n.to_cpp(rs) % ''}.join', '}>"
   end
 end
-UnionType = Node.new(:members)
+UnionType = Node.new(:members) do
+  def members= val; @members = Array.wrap val; end
+  def to_cpp rs
+    "union{#{members.map{|f|f.to_cpp rs}.join', '}}"
+  end
+end
 EnumType = Node.new(:fields) do
+  def fields= val; @fields = Array.wrap val; end
   def to_cpp(rs)
     "enum{#{fields.map{|f|f.to_cpp rs}.join', '}}"
   end
@@ -635,7 +645,12 @@ FuncDecl = Class.new Node.new(:name, :sig, :body, :generics, :specifiers) do
     ## more info on functions returning functions and such at http://www.newty.de/fpt/fpt.html
     "#{"#{rs.indentation}template <#{generics.map{|x|'typename '+ x.to_cpp(rs)}.join', '}>\n" if generics}" +
     "#{rs.indentation}#{
-      sig.base_cpp(rs)} #{
+      if rs.gen_header?
+        #remove the storage if headers are generated 
+        sig.no_storage.base_cpp(rs)
+      else
+        sig.base_cpp(rs)
+      end} #{
       sig.derived_cpp(rs) % "#{rs.parent && rs.parent.name.to_cpp+'::'}#{name}"}"+
     "#{body == :EQ0 ? 
       ' = 0;' :
