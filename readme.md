@@ -27,15 +27,16 @@ You can also use a limited form of English to declare variables, doesn't that so
 
 ```c++
 var x is a pointer to array of 5 int,
-    y is a pointer to function taking 
+    y is an array of (someconstant) pointer to function taking int, []*const char returning void
 //C++
 int (*x)[5];
+void (*y[someconstant])(int , const char *[]);
 ```
 ### Include
 Does what you expect it to. If you include a file with the suffix "lhh" it will look for an LPP file by that name and instruct it to build headers also.
 ```c++
 include <iostream>  //semicolon or EOL expected
-include "some.lpp"; include "someother.lpp"
+include "some.lpp", "someother.lpp"
 //output
 #include <iostream>
 #include "some.hpp"
@@ -52,6 +53,7 @@ var foo, bar: ^int
 var zz: static int
 //C++
 int (*foo), (*bar);
+static int zz;
 
 //Three kinds of declaration are supported:
 var foo: * const* const int, //simple
