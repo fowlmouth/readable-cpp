@@ -16,6 +16,21 @@ var foo: ^ (int) -> ^ (float) -> double;
 //here's the horror it compiles to
 double (*(*foo)(int ))(float );
 ```
+### English types
+You can also use a limited form of English to declare variables, doesn't that sound fun? I'm still working on this and there are some kinks to work out.
+
+* ^ is ('pointer to' || 'ptr to' || 'ptr')
+* & is ('reference to' || 'ref to') 
+* [] is 'array of' (unsized array)
+    * 'array of 5' || 'array of (CONST_EXPR)' for a sized array
+* 'function taking (ARGUMENTS) returning'
+
+```c++
+var x is a pointer to array of 5 int,
+    y is a pointer to function taking 
+//C++
+int (*x)[5];
+```
 ### Include
 Does what you expect it to. If you include a file with the suffix "lhh" it will look for an LPP file by that name and instruct it to build headers also.
 ```c++
@@ -33,9 +48,16 @@ import SFML/Graphics
 ```
 ### Var declaration
 ```c++
-var foo, bar: ^int;
+var foo, bar: ^int
+var zz: static int
 //C++
 int (*foo), (*bar);
+
+//Three kinds of declaration are supported:
+var foo: * const* const int, //simple
+    bar(0), baz(42): int,    // initializers
+    callback: *(&obj, *const char)->int = &someFunc // assignment
+
 ```
 ### Function declaration
 ```c++

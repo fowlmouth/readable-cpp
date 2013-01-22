@@ -66,7 +66,7 @@ class Parser < Parslet::Parser
   }
   rule(:colon_is) { 
     space? >> colon >> space? |
-    space  >>  `is` >> space
+    space  >>  (`is`|`as`) >> (space >> `a` >> `n`.maybe).maybe >> space
   }
   rule(:colon_is?) {
     colon_is | space?
@@ -74,10 +74,14 @@ class Parser < Parslet::Parser
 
   rule(:ident) { (match['A-Za-z_'] >> match['A-Za-z0-9_'].repeat).as(:ident) }
   rule(:keyword) {
-    ( `return` | `for` | `while` | `if` | `elseif` | `else` |
-      `anon` | `ctor` | `dtor` | `in` | `as` | `is` 
+    ( `return` | `for` | `while` | `if` | `elseif` | `else` | `type` |
+      `anon` | `ctor` | `dtor` | `oper` | `func` | `namespace` |
+      `namespace` | 
+      visibility | english_reserved
     ) >> ident.absent?
   }
+  rule(:english_reserved) { `is` | (`a` >> (`s`|`n`).maybe) }
+
   rule(:namespaced_ident) { join(ident, str('::'), 1).as(:namespace) }
   #TODO another rule for just generic ident for function/class decls
   rule(:generic?) {
@@ -123,10 +127,12 @@ class Parser < Parslet::Parser
     `short` | `long` | `signed` | `unsigned` | const
   }
 
+  rule(:returnsing) {
+    `return` >> (`s` | `ing`).maybe
+  }
+
   ## UNFINISHED
-  ## need func_sig_args_eng and extra handling for :array_unsized in nodes.rb
   rule(:derived_english) {
-    (storage.as(:storage) >> space).maybe >>
     join(
       const.as(:const) >> (space >> (ref_eng|ptr_eng)).present? |
       ptr_eng.as(:ptr) |
@@ -138,8 +144,12 @@ class Parser < Parslet::Parser
         (space >> int.as(:array) | space? >> parens(expr).as(:array)) |
         any.present?.as(:array_unsized)
       ) |
-      (`function` >> `s`.maybe >> (space >> `taking`).maybe >> space?).maybe >>
-        func_sig_args >> space? >> (str('->') | `return` >> (`s`|`ing`)),
+      (
+        `function` >> `s`.maybe >> (space >> `taking`).maybe >> 
+        (space? >> func_sig_args | space >> func_sig_args_innards) >>
+        space? >> (str('->') | returnsing)
+      ) |
+      func_sig_args >> space? >> (str('->') | returnsing),
 
       space
     )
@@ -151,10 +161,10 @@ class Parser < Parslet::Parser
       const.as(:const) >> (space? >> (ref|ptr)).present? | 
       ptr.as(:ptr) |
       ref.as(:ref) |
-      str(?[) >> space? >> expr.maybe.as(:array) >> space? >> str(?]) |
+      str(?[) >> spaced?(expr.maybe.as(:array)) >> str(?]) |
       func_sig_args >> space? >> str('->'),
 
-      space?
+      whitespace_nonterminal.maybe
     )
   }
 
@@ -168,7 +178,7 @@ class Parser < Parslet::Parser
       ( union_decl.as(:union) | 
         enum_decl.as(:enum)   |
         `struct` >> space? >> brackets(program).as(:struct) |
-        (modifier.as(:ident) >> space_nonterminal >> keyword.absent? >> ident.present?).repeat(0) >>
+        (modifier.as(:ident) >> space_nonterminal >> ident_no_keyword.present?).repeat(0) >>
         join(
           (ident | namespaced_ident) >> generic?, 
           str('::'), 0).as(:namespaced)
@@ -208,14 +218,17 @@ class Parser < Parslet::Parser
       ) >> semicolon_terminal
     ).as(:anon_decl)
   }
+  rule(:ident_no_keyword) {
+    keyword.absent? >> ident
+  }
   rule(:var_decl) {
     `var` >> space >> 
     join(
       ( #decl/assign
-        ident.as(:name) >> colon_is  >>
+        ident_no_keyword.as(:name) >> colon_is  >>
         type.as(:type) >> spaced?(str(?=)) >> expr.as(:expr) |
         #decl/initialize
-        comma_list(ident.as(:name) >> parens(comma_list(expr).maybe).maybe.as(:constructor)).as(:names) >>
+        comma_list(ident_no_keyword.as(:name) >> parens(comma_list(expr).maybe).maybe.as(:constructor)).as(:names) >>
         colon_is >> type.as(:type)
       ).as(:var_decl),
 
@@ -236,7 +249,9 @@ class Parser < Parslet::Parser
     ).as(:type_decl)
   }
   rule(:semicolon_terminal) {
-    (space? >> semicolon) | eol | any.absent?
+    (space? >> semicolon) | 
+    (whitespace_nonterminal.maybe >> comment_inline) | 
+    eol | any.absent? | (space? >> r_bracket).present?
   }
   rule(:import_stmt) {
     `import` >> space >> join(ident, str(?/)).as(:import_pkg)
@@ -273,7 +288,7 @@ class Parser < Parslet::Parser
   }
   rule(:return_stmt) {
     
-      (`return` >> (space >> expr | parens(expr))).as(:return) >> space? >> semicolon
+      (`return` >> (space >> expr | parens(expr))).as(:return) >> semicolon_terminal
     
   }
   rule(:ctor_decl) {
@@ -473,6 +488,7 @@ class Parser < Parslet::Parser
   #   match[' \t'].repeat(1) >> (str(?\\) >> (match['\n'].absent? >> any).repeat(0) >> eol >> space_nonterminal).maybe |
   #   str(?\\) >> eol >> space_nonterminal
   # }
+  rule(:whitespace_nonterminal) { match[' \t'].repeat(1) }
   rule(:space_nonterminal?) { space_nonterminal.maybe }
   rule(:space_nonterminal) { 
     (comment | match[' \t']).repeat(1) >> (str(?\\) >> space?).maybe
@@ -504,9 +520,9 @@ class Parser < Parslet::Parser
   }
 
   rule(:ident_def) {
-    (comma_list(ident).as(:names) >> space? >> colon >>
-    space? >> type.as(:type) >>
-    (space? >> str(?=) >> space? >> expr.as(:default)).maybe
+    (
+      comma_list(ident).as(:names) >> colon_is >> type.as(:type) >>
+      (space? >> str(?=) >> space? >> expr.as(:default)).maybe
     ).as(:ident_def)
   }
   rule(:ident_defs) {
