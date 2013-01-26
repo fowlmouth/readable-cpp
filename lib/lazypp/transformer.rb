@@ -8,9 +8,11 @@ Transform = Parslet::Transform.new {
   rule(ident: simple(:i), generics: sequence(:g)) {
     GenericIdent.new i, g
   }
-  rule(void: simple(:v)) { v.to_s }
+  rule(void: simple(:v)) { 'void' }
+  rule(any: simple(:__)) { '...' }
   rule(ptr: simple(:p)) { :ptr }
   rule(ref: simple(:r)) { :ref }
+  rule(list_item: simple(:i)){ i }
 
   rule(ident_eq: { ident: simple(:i), dot_expr: simple(:x) }) {
     InfixExpr.new(i, '=', x)
@@ -28,12 +30,19 @@ Transform = Parslet::Transform.new {
   rule(wchar: simple(:w), string: simple(:s)) {
     StringLit.new(w, s)
   }
-  rule(type: {derived: subtree(:d), base: subtree(:b), storage: simple(:s)}){
-    Type.new(b, Array.wrap(d), s)
+  # rule(type: {derived: subtree(:d), base: subtree(:b), storage: simple(:s)}){
+  #   Type.new(b, Array.wrap(d), s)
+  # }
+  # rule(type: {derived: subtree(:d), base: subtree(:b)}) {
+  #   Type.new b, Array.wrap(d), nil
+  # }
+  rule(derived: subtree(:d), base: subtree(:b)) {
+    Type.new b, d, nil
   }
-  rule(type: {derived: subtree(:d), base: subtree(:b)}) {
-    Type.new b, Array.wrap(d), nil
+  rule(derived: subtree(:d), base: subtree(:b), storage: subtree(:s)) {
+    Type.new b, d, s
   }
+  rule(type: simple(:t)) {t}
 
   rule(union: { members: subtree(:m) }) {
     UnionType.new(m)
@@ -56,23 +65,30 @@ Transform = Parslet::Transform.new {
   rule(lang_section: subtree(:l)) {
     #binding.pry
     LangSection.new(l) }
-  rule(ident_def: {
-    names: sequence(:n), type: simple(:t)}) {
+  rule(#ident_def: 
+  {
+    id_names: sequence(:n), type: simple(:t)}) {
     IdentDef.new n, t, nil
   }
-  rule(ident_def: {
-    names: sequence(:n), type: simple(:t), default: simple(:d)}) {
+  rule(#ident_def: 
+  {
+    id_names: sequence(:n), type: simple(:t), id_default: simple(:d)}) {
     IdentDef.new n, t, d
   }
-  rule(ident_def: {
-    names: simple(:n), type: simple(:t) }) {
+  rule(#ident_def: 
+  {
+    id_names: simple(:n), type: simple(:t) }) {
     IdentDef.new n, t, nil
   }
-  rule(ident_def: {
+  rule(#ident_def: 
+  {
     names: simple(:n), type: simple(:t),
     default: simple(:d)  }) {
     IdentDef.new n, t, d
   }
+  rule(ident_def: simple(:i), any: simple(:a)) {[i, '...']}
+  rule(type: simple(:t), any: simple(:a)) {[t, '...']}
+  rule(ident_def: simple(:_)) {_}
   # rule(var_decl: {
   #   name: simple(:n), type: simple(:t),
   #   })
@@ -82,7 +98,7 @@ Transform = Parslet::Transform.new {
   rule(var_decl: {name: simple(:n), type: simple(:t), expr: simple(:x)}){
     VarDeclSimple.new(n, t, x)
   }
-  rule(var_decl: {names: subtree(:n), type: simple(:t)}) {
+  rule(var_decl: {vdi_names: subtree(:n), vdi_type: simple(:t)}) {
     VarDeclInitializer.new n, t
   }
   rule(case_: 'default', body: sequence(:b)) {
@@ -153,6 +169,11 @@ Transform = Parslet::Transform.new {
   }
   rule(func_decl: {
     name: simple(:name), generics: subtree(:g), specifiers: subtree(:s),
+    sig: simple(:sig) }) {
+    FuncDecl.new name, sig, nil, g, s
+  }
+  rule(func_decl: {
+    name: simple(:name), generics: subtree(:g), specifiers: subtree(:s),
     sig: simple(:sig), eq_0: simple(:eee)}) {
     FuncDecl.new name, sig, :EQ0, g, s
   }
@@ -194,8 +215,22 @@ Transform = Parslet::Transform.new {
     "#{r}#{n}"
   }
   rule(lambda_func: {
-    captures: simple(:c), args: subtree(:p), returns: simple(:r), body: simple(:b)}) {
-    LambdaFunc.new(c.empty? ? nil : c, Array.wrap(p), r, b)
+    captures: simple(:c), args: subtree(:p), 
+    returns: simple(:r), body: simple(:b)
+  }) {
+    LambdaFunc.new c, p, r, b
+  }
+  rule(lambda_func: {
+    captures: { auto_ref: simple(:___) },
+    args: subtree(:p), returns: simple(:r), body: simple(:b)
+  }) {
+    LambdaFunc.new '&', p, r, b
+  }
+  rule(lambda_func: {
+    captures: {auto_val: simple(:___)},
+    args: subtree(:p), returns: simple(:r), body: simple(:b)
+  }) {
+    LambdaFunc.new '=', p, r, b
   }
   rule(prefix: simple(:p), expr: simple(:x), postfix: simple(:pp),
     ternary: simple(:t), true: simple(:xT), false: simple(:xF)) {
@@ -301,8 +336,7 @@ Transform = Parslet::Transform.new {
     body: simple(:b) }) {
     Conditional.new k, c, b
   }
-  rule(conditional: {
-    kind: 'for',
+  rule(for_stmt: {
     l: simple(:l),
     m: simple(:m),
     r: simple(:r),

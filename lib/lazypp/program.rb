@@ -77,7 +77,6 @@ module LazyPP
     def initialize opts={}
       opts = {dir: Dir.pwd}.merge opts
       @working_dir = opts[:dir]
-      puts @working_dir
       @parser = Parser.new
       @pkgs = Set.new
       @handlers, @settings, @files, @scheduled = {}, {}, {}, {}
@@ -173,6 +172,7 @@ module LazyPP
       FileUtils.mkdir_p build_dir
       workingdir = Dir.pwd
       Dir.chdir build_dir do
+        warn 'Writing...'
         @files.each_value {|u| u.write }
         open(buildscript = "build.#{outname = @files[@files.keys.first].basename}.sh", 'w+') do |f|
           f.puts buildscripts
@@ -180,9 +180,9 @@ module LazyPP
 
         if system 'chmod +x '<< buildscript
           if build
-            warn 'building..'
+            warn 'Building...'
             if system './' << buildscript
-              FileUtils.mv outname, File.join(workingdir, outname)
+              FileUtils.mv outname, File.join(workingdir, outname) unless workingdir == build_dir
             end
           end
         end
@@ -210,7 +210,7 @@ module LazyPP
       # cpps.map{|f|"g++ -c #{f} #{compile_opts} &&\n"}.join +
       # "g++ #{objs.join ' '} -o #{@files.first[1].basename} #{linker_opts} \n"
       "#!/bin/sh\n" \
-      "g++ -o #{@files.first[1].basename} #{cpps.join' '} #{compile_opts} #{linker_opts}\n"
+      "g++ -o #{@files.first[1].basename} #{compile_opts} #{cpps.join' '}  #{linker_opts}\n"
     end
   end
 end

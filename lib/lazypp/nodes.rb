@@ -3,8 +3,8 @@ class Array
     x.is_a?(Array) ? x :
     x.is_a?(Hash) ? [x] : [*x]
   end
-  def self.wrap_nil x
-    (x.nil? || x.respond_to?(:empty) && x.empty?) ? nil : wrap(x)
+  def self.wrap_nil x, nil_value = nil
+    (x.nil? || x.respond_to?(:empty) && x.empty?) ? nil_value : wrap(x)
   end
 end
 
@@ -266,10 +266,13 @@ Type = Node.new(:base, :derived, :storage) do
             res = if left; left = false; "(#{res})#{n}"
                   else; "#{res}#{n}" end
           elsif d.has_key? :args
+            begin
             n = "(#{[*d[:args]].map { |a| a.send(m, rs) % '' }.join', '})"
             res = if left; left = false; "(#{res})#{n}"
                   else; "#{res}#{n}" end
-          
+            rescue => e
+              binding.pry
+            end
           elsif d.has_key? :const
             res = "#{d[:const].to_s.downcase} #{res}"
             left = true
@@ -308,8 +311,6 @@ TypeDecl = Node.new(:name, :type) do
     rs.gen_header? ? '' : to_hpp(rs)
   end
   def to_hpp rs
-    binding.pry if \
-      type.derived.nil? && (type.base[0].is_a?(UnionType))# || type.base[0].is_a?(EnumType))
     "#{rs.indentation}typedef #{type.base_cpp rs} #{type.derived_cpp(rs) % name.to_cpp(rs)};"
   end
 end
@@ -425,7 +426,7 @@ end
 UnionType = Node.new(:members) do
   def members= val; @members = Array.wrap val; end
   def to_cpp rs
-    "union{#{members.map{|f|f.to_cpp rs}.join', '}}"
+    "union{#{members.map{|f|f.to_cpp(rs) + ';'}.join' '}}"
   end
 end
 EnumType = Node.new(:fields) do
@@ -680,12 +681,18 @@ class OperDecl < FuncDecl
     @name=:implicit if name =~ /implicit/i
   end
   def sig= val
-    if pos == "post" && val.derived[0][:args] == 'void'
-      #dont remember this. what is it for?
-      val.derived[0][:args] = Type.new(:int, nil)
-      binding.pry
+    if pos == "post"
+      if not val.derived[0][:args] == 'void'
+        ## postfix operator with args, find a better way to deal with this later
+        binding.pry
+      else
+        val.derived[0][:args] = Type.new(:int, nil, nil)
+      end
     end
     @sig = val
+  rescue ##one day i'll make :args to a FunctionArgs node
+    ##on that day bindings will be pried
+    binding.pry
   end
 
   def decl_header rs, qualify

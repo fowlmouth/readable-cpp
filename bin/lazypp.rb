@@ -93,23 +93,31 @@ p.build_dir = opts[:B]
 opts[:I].each(&LazyPP::Package::PackageDir.method(:<<)) \
   unless opts[:I].nil?
 
+if opts[:S].nil? && !ARGV.empty?
+  opts[:S] = ARGV[0]
+end
 unless opts[:S].nil?
+  res = nil
   if opts[:R] && (rule = (p.parser.send(opts[:R].downcase) rescue nil))
-    ap rule.parse(opts[:S])
+    res = rule.parse(opts[:S])
+    res &&= LazyPP::Transform.apply res
+    res && puts(res.to_cpp LazyPP::RenderState.new)
   else
     r = p.parse_str(opts[:S])
     if r then
       puts r[0].to_cpp
+      binding.pry if opts[:P]
       if opts[:t] 
-        ap r[1]
+        res = r[1]
       end
     else
       puts '=('
     end
   end
+  res && ap(res)
 else
   if not opts[:W]
-    Trollop.die :f, "File argument (-f) is required" unless opts[:P] || opts[:f] 
+    Trollop.die :f, "File argument (-f) is required `#{ARGV.inspect}`" unless opts[:P] || opts[:f] 
     opts[:f] += '.lpp' unless opts[:f].nil? || opts[:f] =~ /\.lpp$/
     Trollop.die :f, "File does not exist #{opts[:f]}" if (opts[:f].nil? ? !opts[:P] : !File.exist?(opts[:f]))
   end

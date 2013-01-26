@@ -35,7 +35,7 @@ module LazyPP
       if txt.respond_to? :map then txt.map { |t| parse_sh t }
       elsif txt =~ /^`(.+)`/ then 
         warn "Executing sh commands from package #{name}: `#$1`"
-        %x{#$1}#.gsub(/;/,'') ##<- temporary fix for pkg-config returning -L;/path/; 
+        %x{#$1}.chomp##.gsub(/-l\\?;(?<foo>[^\\;]+)\\?;/, '-l\k<foo>') ##<- temporary fix for pkg-config returning -L;/path/; 
       else txt end
     end
 
