@@ -30,6 +30,11 @@ Transform = Parslet::Transform.new {
   rule(wchar: simple(:w), string: simple(:s)) {
     StringLit.new(w, s)
   }
+  rule(wchar: simple(:w), string: sequence(:s)) {
+    StringLit.new(w, s.join(''))
+  }
+  rule(goto: simple(:l)) { GotoLabel.new :goto, l }
+  rule(label: simple(:g)){ GotoLabel.new :label,g }
   # rule(type: {derived: subtree(:d), base: subtree(:b), storage: simple(:s)}){
   #   Type.new(b, Array.wrap(d), s)
   # }

@@ -534,33 +534,24 @@ class Parser < Parslet::Parser
       spaced_body.as(:body)
     ).as(:range_for)
   }
-  rule(:for_stmt1) {
-    ( var_decl  | #args:(space? >> semicolon) |
-      auto_decl | 
-      expr >> space? >> semicolon |
-      space? >> semicolon >> any.present?
-    ).as(:l)
-  };rule(:for_stmt2) {
-    spaced?(expr.as(:m)) >> semicolon
-  };rule(:for_stmt3) {
-    space? >> expr.as(:r) }
   rule(:for_stmt) {
     ( `for` >> parens_oder_spacen(
-        # ( #var_decl | 
-        #   #auto_decl | 
-        #   expr >> space? >> semicolon | 
-        #   space? >> semicolon.present?
-        # ).as(:l) >>
-        ##( expr.as(:l) >> space? >> semicolon |
-        ##  space? >> semicolon.present?.as(:l) >> semicolon
-        for_stmt1 >> for_stmt2 >> for_stmt3
-        # ) >>
-        # spaced?(expr.as(:m)) >> semicolon >>
-        # space? >> expr.as(:r)
+      ( var_decl  | 
+        auto_decl | 
+        expr >> space? >> semicolon |
+        space? >> semicolon >> any.present?
+      ).as(:l) >>
+      space? >>
+      (
+        expr.as(:m) >> space? >> semicolon |
+        semicolon.present?.as(:m) >> semicolon
       ) >>
-      #   space? >> expr.as(:m) >> space? >> semicolon >>
-      #   space? >> expr.as(:r) 
-      # ) 
+      (
+        (space? >> (l_bracket | r_paren)).present?.as(:r) |
+        space? >> expr.as(:r)
+      )
+       # for_stmt1 >> for_stmt2 >> for_stmt3
+      ) >>
       spaced_body.as(:body)
     ).as(:for_stmt)
   }
@@ -632,10 +623,15 @@ class Parser < Parslet::Parser
       ).as(:cases)
     ).as(:switch_stmt)
   }
+  rule(:goto_label) {
+    ( `goto` >> space >> ident_no_keyword.as(:goto) |
+      `label` >> space >> ident_no_keyword.as(:label)
+    ) >> semicolon_terminal
+  }
 
   rule(:stmt) {
     var_decl | auto_decl | import_stmt | using_stmt | func_decl | 
-    try_catch |
+    try_catch | goto_label |
     return_stmt | class_visibility_decl | switch_stmt |
     namespace_decl | type_decl | ctor_decl | dtor_decl | oper_decl |
     conditional | lang_section | include_stmt | define_stmt |

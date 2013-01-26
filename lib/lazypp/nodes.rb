@@ -123,7 +123,7 @@ RangeForStmt = Node.new(:var, :container, :body) do
   end
 end
 ForStmt = Class.new(Conditional) do
-  def scan *args; body.scan(*args); condition.each{|c|c.scan(*args)} end
+  def scan *args; body.scan(*args); condition.compact.each{|c|c.scan(*args)} end
   def to_cpp rs
     "#{rs.indentation}for(#{last = condition[0].to_cpp(rs)}#{
       ';' unless last[-1] == ';'}#{condition[1].to_cpp rs};#{condition[2].to_cpp rs}) {\n#{
@@ -134,7 +134,14 @@ NamespaceIdent = Node.new(:names) do
   def names= val; @names = Array.wrap(val) end
   def to_cpp(rs) names.map{|n|n.to_cpp(rs)}.join '::' end
 end
-
+GotoLabel = Node.new :type, :label do
+  def to_cpp rs
+    case type
+    when :goto; "goto #{label};"
+    else "#{label}:"
+    end
+  end
+end
 
 DotName = Node.new(:name) do
   def name= val; @name = Array.wrap(val) end
