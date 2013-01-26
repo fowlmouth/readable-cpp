@@ -347,7 +347,7 @@ class ClassDecl < TypeDecl
   end
   def to_hpp(rs)
     rs = rs.new parent: self
-    "#{type} #{name} #{
+    "#{rs.indentation}#{type} #{name} #{
       ": #{
         parents.map { |p| 
           "#{p[:vis].to_cpp(rs)} #{p[:parent].to_cpp(rs)}"
@@ -440,6 +440,18 @@ EnumType = Node.new(:fields) do
   def fields= val; @fields = Array.wrap val; end
   def to_cpp(rs)
     "enum{#{fields.map{|f|f.to_cpp rs}.join', '}}"
+  end
+end
+##Special case enum type decl (type Foo: enum{X,Y,Z})
+##the other one works for anonymous enum types (var x: enum{A,B,C})
+EnumDecl = Node.new :name, :fields do
+  def fields= val; @fields = Array.wrap val; end
+  def header_only rs
+    to_hpp(rs) unless rs.gen_header?
+  end
+  def to_cpp(rs) header_only(rs) end
+  def to_hpp rs
+    "enum #{name} {#{fields.map{|f|f.to_cpp rs}.join', '}};"
   end
 end
 StructType = Node.new(:body) do
@@ -610,6 +622,12 @@ DtorDecl = Node.new(:stmts, :specifier) do
     }~#{
       rs.parent.name.to_hpp(rs)
     }();"
+  end
+end
+AnonDecl = Node.new :type do ## DOUBLE CHECK THIS
+  def to_cpp rs; ''; end ## works fine inside structs/class where
+  def to_hpp rs ## the header is always generated above the impl
+    "#{rs.indentation}#{type.to_cpp(rs) % ''};"
   end
 end
 CtorDecl = Node.new(:args, :initializers, :body, :name) do

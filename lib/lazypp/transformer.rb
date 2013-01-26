@@ -24,6 +24,9 @@ Transform = Parslet::Transform.new {
   rule(stmts: simple(:s)) {
     StmtList.new Array.wrap s
   }
+  rule(anon_decl: simple(:ty)) {
+    AnonDecl.new ty
+  }
   rule(bracket_stmts: sequence(:s)) {
     BracketStmts.new s
   }
@@ -318,6 +321,11 @@ Transform = Parslet::Transform.new {
       class_type: simple(:c),
       body: subtree(:b) }}) {
     ClassDecl.new(n, c, b, nil)
+  }
+  rule(type_decl: {
+    name: simple(:n),
+    enum: { fields: subtree(:f) }}) {
+    EnumDecl.new n, f
   }
   rule(struct_lit: simple(:x)) { StructLit.new x }
   rule(struct_lit: sequence(:x)) { StructLit.new x }

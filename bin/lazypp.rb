@@ -108,7 +108,7 @@ unless opts[:S].nil?
       puts r[0].to_cpp
       binding.pry if opts[:P]
       if opts[:t] 
-        res = r[1]
+        res = r[0]
       end
     else
       puts '=('

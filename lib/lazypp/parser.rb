@@ -216,7 +216,8 @@ class Parser < Parslet::Parser
       `anon` >> (
         space >> (
           `namespace` >> space? >> bracket_body.as(:namespace) |
-          `union` >> space? >> bracket_body.as(:union)
+          union_decl.as(:union)
+          #`union` >> space? >> bracket_body.as(:union)
         )
       ) >> semicolon_terminal
     ).as(:anon_decl)
@@ -266,8 +267,11 @@ class Parser < Parslet::Parser
     (
       `type` >> space >> (ident >> generic?).as(:name) >>
       colon_is >>
-      (class_decl | type).as(:type) >>
-      (space? >> str(';') | eol | any.absnt?)
+      ( enum_decl.as(:enum) |
+        (class_decl | type).as(:type)
+      ) >>
+      semicolon_terminal
+      #(space? >> str(';') | eol | any.absnt?)
     ).as(:type_decl)
   }
 
@@ -369,7 +373,7 @@ class Parser < Parslet::Parser
     )
   }
   rule(:ident_eq) {
-    ident >> (space? >> str(?=) >> space? >> expr).maybe
+    ident >> (spaced?(str(?=)) >> expr).maybe
   }
   rule(:class_decl) {
     (`class` | `struct`).as(:class_type) >> (
@@ -631,7 +635,7 @@ class Parser < Parslet::Parser
 
   rule(:stmt) {
     var_decl | auto_decl | import_stmt | using_stmt | func_decl | 
-    try_catch | goto_label |
+    try_catch | goto_label | anon_decl |
     return_stmt | class_visibility_decl | switch_stmt |
     namespace_decl | type_decl | ctor_decl | dtor_decl | oper_decl |
     conditional | lang_section | include_stmt | define_stmt |
