@@ -88,7 +88,7 @@ class Parser < Parslet::Parser
   rule(:namespaced_ident) { join(ident_no_keyword, str('::'), 1).as(:namespace) }
   #TODO another rule for just generic ident for function/class decls
   rule(:generic?) {
-    (str(?<) >> comma_list(type#|namespaced_ident|ident#|type
+    (str(?<) >> comma_list(type | expr#|namespaced_ident|ident#|type
       ).as(:generics) >> str(?>)).maybe
   }
   rule(:digit) do match['\d'] end
@@ -265,14 +265,21 @@ class Parser < Parslet::Parser
   }
   rule(:type_decl) {
     (
-      `type` >> space >> (ident >> generic?).as(:name) >>
-      colon_is >>
-      ( enum_decl.as(:enum) |
-        (class_decl | type).as(:type)
+      `type` >> space >> 
+      join(
+        (
+          (ident >> generic?).as(:name) >>
+          colon_is >>
+          ( enum_decl.as(:enum) |
+            (class_decl | type).as(:type)
+          )
+        ).as(:type_decl),
+
+        spaced?(comma)
       ) >>
       semicolon_terminal
       #(space? >> str(';') | eol | any.absnt?)
-    ).as(:type_decl)
+    ).as(:stmts)#.as(:type_decl)
   }
 
   rule(:semicolon_terminal) {

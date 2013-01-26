@@ -339,7 +339,7 @@ class ClassDecl < TypeDecl
     "#{to_hpp(rs)+"\n" unless rs.gen_header?}" +
     (body.nil? ? '' : body.to_cpp(rs){|n|
       if n.is_a?(VarDeclInitializer) || n.is_a?(VarDeclSimple) ||
-         n.is_a?(TypeDecl)
+         n.is_a?(TypeDecl) || n.is_a?(EnumDecl)
         false
       else
         n
@@ -447,11 +447,15 @@ end
 EnumDecl = Node.new :name, :fields do
   def fields= val; @fields = Array.wrap val; end
   def header_only rs
-    to_hpp(rs) unless rs.gen_header?
+    unless rs.gen_header?
+      to_hpp rs
+    else
+      ''
+    end
   end
   def to_cpp(rs) header_only(rs) end
   def to_hpp rs
-    "enum #{name} {#{fields.map{|f|f.to_cpp rs}.join', '}};"
+    "#{rs.indentation}enum #{name} {#{fields.map{|f|f.to_cpp rs}.join', '}};"
   end
 end
 StructType = Node.new(:body) do
