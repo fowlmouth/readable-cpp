@@ -85,11 +85,16 @@ class Parser < Parslet::Parser
   }
   rule(:english_reserved) { `is` | (`a` >> (`s`|`n`)) }
 
-  rule(:namespaced_ident) { join(ident_no_keyword, str('::'), 1).as(:namespace) }
+  rule(:namespaced_ident) { 
+    join(ident_no_keyword, str('::'), 1).as(:namespace)
+  }
   #TODO another rule for just generic ident for function/class decls
+  #update: this is done somewhere, maybe func_call_new
   rule(:generic?) {
-    (str(?<) >> comma_list(type | expr#|namespaced_ident|ident#|type
-      ).as(:generics) >> str(?>)).maybe
+    ( str(?<) >> 
+      comma_list(type | int | char#|namespaced_ident|ident#|type
+      ).as(:generics) >> str(?>)
+    ).maybe
   }
   rule(:digit) do match['\d'] end
   rule(:int) { digit.repeat(1).as(:int) }
@@ -184,9 +189,8 @@ class Parser < Parslet::Parser
         (modifier.as(:ident) >> space_nonterminal >> ident_no_keyword.present?).repeat(0) >>
         join(
           (ident_no_keyword | namespaced_ident) >> generic?, 
-          str('::'), 0).as(:namespaced)
-        #join(`in `.absnt? >> ident, space, 1) |
-        
+          str('::'), 0
+        ).as(:namespaced)
       ).as(:base)
     ).as(:type)
   }
@@ -267,8 +271,7 @@ class Parser < Parslet::Parser
     (
       `type` >> space >> 
       join(
-        (
-          (ident >> generic?).as(:name) >>
+        ( (ident >> generic?).as(:name) >>
           colon_is >>
           ( enum_decl.as(:enum) |
             (class_decl | type).as(:type)
@@ -278,8 +281,7 @@ class Parser < Parslet::Parser
         spaced?(comma)
       ) >>
       semicolon_terminal
-      #(space? >> str(';') | eol | any.absnt?)
-    ).as(:stmts)#.as(:type_decl)
+    ).as(:stmts)
   }
 
   rule(:semicolon_terminal) {

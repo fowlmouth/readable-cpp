@@ -81,21 +81,28 @@ class RenderState
   attr_reader :opts
   def initialize opts={}
     @opts = { 
-      indent: 0, parent: nil, program: nil, namespace: []
+      indent: 0, parent: [], program: nil, namespace: []
     }.merge(opts.is_a?(RenderState) ? opts.opts : opts)
   end
   def new opts={}
     RenderState.new(@opts.merge opts)
   end
-  def gen_header() @opts[:gen_header] end
   def gen_header?() !!@opts[:gen_header] end
-  def parent=(p)
-    @opts[:parent]=p
+  def gen_header!() new(gen_header: true) end
+  def no_header() new(gen_header: false) end
+  # def parent=(p)
+  #   @opts[:parent]=Array.wrap(p).compact
+  # end
+  def parents() @opts[:parent] end
+  alias parent parents
+  def parent_names() parent.map{|p|p.name.to_cpp self}.join('::') end
+  def add_parent(p) 
+    new(parent: parent+[p])
   end
-  def parent() @opts[:parent] end
   def program() @opts[:program] end
   def indent(by=1) 
-    RenderState.new(@opts.merge(indent: @opts[:indent]+by))
+    new(indent: @opts[:indent] + by)
+    #RenderState.new(@opts.merge(indent: @opts[:indent]+by))
   end
   def indentation() '  '*@opts[:indent]  end
 end
@@ -213,14 +220,16 @@ StmtList = Class.new(Array) do #Node.new(:stmts) do
   def to_hpp(rs = RenderState.new)
     map { |s| s.to_hpp(rs) }.join"\n"
   end
-  def to_cpp(rs = RenderState.new, &b)
-    #stmts.
-    #map(&:to_cpp).join("\n")
+  def to_cpp(rs = RenderState.new, &discriminator)
     if block_given?
-      select(&b).map { |s| s.to_cpp(rs, &b) }.join"\n"
+      select(&discriminator).map { |s| 
+        s.to_cpp(rs, &discriminator) 
+      }
     else
-      map { |s| s.to_cpp(rs) }.join"\n"
-    end
+      map { |s| 
+        s.to_cpp(rs) 
+      }
+    end.join("\n")
   end
   def at index; self[index] end
 end
@@ -334,28 +343,46 @@ class ClassDecl < TypeDecl
   def parents= val
     @parents = val.nil? ? val : Array.wrap(val)
   end
-  def to_cpp(rs = RenderState.new())
-    rs = rs.new(parent: self)
-    "#{to_hpp(rs)+"\n" unless rs.gen_header?}" +
-    (body.nil? ? '' : body.to_cpp(rs){|n|
-      if n.is_a?(VarDeclInitializer) || n.is_a?(VarDeclSimple) ||
-         n.is_a?(TypeDecl) || n.is_a?(EnumDecl)
-        false
-      else
-        n
-      end } )
+  def to_cpp rs
+    #rs = rs.add_parent(self)
+    ##rs = rs.new(parent: rs.p#rent<<self)
+    <<-"C++"
+#{
+to_hpp(rs.add_parent(self)) unless rs.gen_header?
+}#{  ##mark it as generating headers so nested classes arent declared twice
+body.to_cpp(rs.gen_header!.add_parent(self)){|n|
+  if n.is_a?(VarDeclInitializer) || n.is_a?(VarDeclSimple) ||
+     n.instance_of?(TypeDecl) || n.is_a?(EnumDecl)
+    false
+  else
+    n
+  end
+} unless body.nil?}
+    C++
   end
   def to_hpp(rs)
-    rs = rs.new parent: self
-    "#{rs.indentation}#{type} #{name} #{
-      ": #{
-        parents.map { |p| 
-          "#{p[:vis].to_cpp(rs)} #{p[:parent].to_cpp(rs)}"
-        }.join', '} \n" unless parents.nil?}" +
-      (body.nil? ? ';' : "{\n#{
-        body.to_hpp(rs.indent) unless body.nil?
-      }\n"\
-      "};")
+    rs = rs.add_parent(self)
+    ##rs = rs.new parent: self
+    <<-"C++"
+#{rs.indentation}#{type} #{name} #{
+  unless parents.nil?
+    ": #{parents.map { |p| "#{p[:vis].to_cpp(rs)} #{p[:parent].to_cpp(rs)}" }.join', '} \n"
+  end
+}#{if body.nil?
+  ';'
+else
+  "\n#{rs.indentation}{\n#{body.to_hpp(rs.indent)}\n#{rs.indentation}};"
+end}
+    C++
+    # "#{rs.indentation}#{type} #{name} #{
+    #   ": #{
+    #     parents.map { |p| 
+    #       "#{p[:vis].to_cpp(rs)} #{p[:parent].to_cpp(rs)}"
+    #     }.join', '} \n" unless parents.nil?}" +
+    #   (body.nil? ? ';' : "{\n#{
+    #     body.to_hpp(rs.indent) unless body.nil?
+    #   }\n"\
+    #   "#{rs.indentation}};")
   end
 end
 Expr = Node.new(:prefix, :expr, :postfix) do
@@ -488,7 +515,7 @@ ConstructorName = Node.new(:name, :args)
 IdentDef = Node.new(:names, :type, :default) do
   def names= val; @names = Array.wrap(val) end
   def to_cpp(rs)
-    #return to_hpp(rs)  unless rs.gen_header
+    #return to_hpp(rs)  unless rs.gen_header?
     t = type.to_cpp(rs)
     names.map { |n| t % n }.join', '
   end
@@ -614,8 +641,8 @@ DtorDecl = Node.new(:stmts, :specifier) do
 
   def to_cpp rs
     #parent = rs.parent
-    parentname = rs.parent.name.to_cpp rs
-    "#{rs.indentation}#{parentname}::~#{parentname}() \n"\
+    pname = rs.parent_names + '::~' + rs.parents.last.name.to_s
+    "#{rs.indentation}#{pname}() \n"\
     "#{rs.indentation}{\n"\
     "#{stmts.to_cpp(rs.indent)}\n"\
     "#{rs.indentation}}"
@@ -624,7 +651,7 @@ DtorDecl = Node.new(:stmts, :specifier) do
     "#{rs.indentation}#{
       specifier unless specifier.nil?
     }~#{
-      rs.parent.name.to_hpp(rs)
+      rs.parent.last.name.to_hpp(rs)
     }();"
   end
 end
@@ -639,27 +666,35 @@ CtorDecl = Node.new(:args, :initializers, :body, :name) do
   def initializers= i; @initializers = (i.nil? ? nil : Array.wrap( i)); end
   def scan(*args) body.scan(*args) end
   def to_cpp rs
-    parent = rs.parent
-    "#{rs.indentation}#{parent.name}::#{name.nil? ?
-      parent.respond_to?(:name) ? 
-        parent.name : 
-        '/*constructor name missing and parent node has no name*/' :
-      name
-    }(#{args.map{|a|a.to_cpp rs}.join', '}) #{
-      ( ': ' +
-        initializers.map{|i|
-          i = i[:initializer]
-          "#{i[:member].to_cpp rs}(#{[*i[:args]].map{|a|a.to_cpp rs}.join(', ')})"
-        }.join(', ')
-      ) unless initializers.nil? 
-    } #{body.nil? ? ?; : "{\n#{body.to_cpp(rs.indent)}\n#{rs.indentation}}"}"
+    Pry.rescue { 
+      pname = rs.parent_names
+      pname << "::" << rs.parent.last.name.to_s
+      <<-LULZ
+#{rs.indentation}#{pname}#{#rs.parent.last.name}::#{pname.nil? ?
+  #parent.respond_to?(:name) ? 
+  #  parent.name : 
+  #  (binding.pry;'/*constructor name missing and parent node has no name*/'):
+  #pname
+}(#{args.map{|a|a.to_cpp rs}.join', '}) #{
+  ( ': ' +
+    initializers.map{|i|
+      i = i[:initializer]
+      "#{i[:member].to_cpp rs}(#{[*i[:args]].map{|a|a.to_cpp rs}.join(', ')})"
+    }.join(', ')
+  ) unless initializers.nil? 
+} #{
+if body.nil? then ?; 
+else "{\n#{body.to_cpp(rs.indent)}\n#{rs.indentation}}" 
+end}
+      LULZ
+    }
   end
   def to_hpp rs
-    parent = rs.parent
+    parent = rs.parent.last
     "#{rs.indentation}#{name.nil? ?
       parent.respond_to?(:name) ?
         parent.name.to_hpp(rs) :
-        '/*constructor name missing and parent node has no name*/' :
+        (binding.pry if false;'/*constructor name missing and parent node has no name*/') :
       name
     }(#{args.map{|a|a.to_hpp rs}.join', '});"
   end
@@ -673,6 +708,8 @@ FuncDecl = Class.new Node.new(:name, :sig, :body, :generics, :specifiers) do
   def scan(*args) body.scan(*args) unless body.nil? end
   def to_cpp(rs)
     ## more info on functions returning functions and such at http://www.newty.de/fpt/fpt.html
+    prename = ''
+    prename = rs.parent_names+'::' unless rs.parents.empty?
     "#{"#{rs.indentation}template <#{generics.map{|x|'typename '+ x.to_cpp(rs)}.join', '}>\n" if generics}" +
     "#{rs.indentation}#{
       if rs.gen_header?
@@ -681,7 +718,7 @@ FuncDecl = Class.new Node.new(:name, :sig, :body, :generics, :specifiers) do
       else
         sig.base_cpp(rs)
       end} #{
-      sig.derived_cpp(rs) % "#{rs.parent && rs.parent.name.to_cpp+'::'}#{name}"}"+
+      sig.derived_cpp(rs) % "#{prename}#{name}"}"+
     "#{body == :EQ0 ? 
       ' = 0;' :
       body.nil? ? 
