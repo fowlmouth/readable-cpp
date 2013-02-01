@@ -140,7 +140,7 @@ module LazyPP
     def clear; @files = {} end
 
     def parse_str str
-      raw_tree = @parser.parse(str, reporter: Parslet::ErrorReporter::Deepest.new)
+      raw_tree = @parser.parse_with_debug(str),#, reporter: Parslet::ErrorReporter::Deepest.new)
       [Transform.apply(raw_tree), raw_tree]
     rescue Parslet::ParseFailed => error
       puts error.cause.ascii_tree

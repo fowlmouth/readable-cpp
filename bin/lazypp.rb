@@ -33,14 +33,9 @@ begin
     rule(keyword: simple(:i)) {i.to_s.intern}
     rule(decimal: simple(:d)) {d.to_i}
   end
-  CP = Class.new(CParser::Parser).new
-  def CP.clean() @text = [] end
-  def CP.parse(str) ##trap the text parsed for later :>
-    super(@text << str)
+  def cp(str) 
+    CTransform.apply CParser::Parser.new.parse(str)
   end
-  CP.clean
-
-  def cp(str) CTransform.apply CP.parse str end
 rescue LoadError => e
   puts e
   def cp(str) :cparser_not_found_have_a_symbol_instead end
@@ -84,18 +79,14 @@ p = LazyPP::Program.new
 res = nil
 
 try = proc do |str| 
-  (r = p.parse_str(str)) ?
-    (puts r[0].to_cpp; r[0])   :
-    nil
+  LazyPP::Transform.apply LazyPP::Parser.new.parse str
 end
 
 p.build_dir = opts[:B] 
 opts[:I].each(&LazyPP::Package::PackageDir.method(:<<)) \
   unless opts[:I].nil?
 
-if opts[:S].nil? && !ARGV.empty?
-  opts[:S] = ARGV[0]
-end
+opts[:S] ||= ARGV[0] unless ARGV.empty?
 unless opts[:S].nil?
   res = nil
   if opts[:R] && (rule = (p.parser.send(opts[:R].downcase) rescue nil))
@@ -103,16 +94,19 @@ unless opts[:S].nil?
     res &&= LazyPP::Transform.apply res
     res && puts(res.to_cpp LazyPP::RenderState.new)
   else
-    r = p.parse_str(opts[:S])
-    if r then
-      puts r[0].to_cpp
-      binding.pry if opts[:P]
-      if opts[:t] 
-        res = r[0]
-      end
-    else
-      puts '=('
-    end
+    r = try[opts[:S]]
+    r && puts(r.to_cpp)
+    r && (res = r)
+    # r = p.parse_str(opts[:S])
+    # if r then
+    #   puts r[0].to_cpp
+    #   binding.pry if opts[:P]
+    #   if opts[:t] 
+    #     res = r[0]
+    #   end
+    # else
+    #   puts '=('
+    # end
   end
   res && ap(res)
 else
@@ -163,4 +157,5 @@ elsif opts[:f]
   p.write(opts[:b]) if opts[:w] || opts[:b]
 end
 
-binding.pry if opts[:P]
+(include LazyPP
+binding.pry) if opts[:P]

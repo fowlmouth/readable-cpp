@@ -54,12 +54,14 @@ class Node
       def self.new(*args)
         o = allocate
         o.send :initialize, *args
+        o.send :post_init
         o
       end
     END
     cls.class_eval &b if b
     cls
   end
+  def post_init() end
   def to_cpp(*)
     "//(Unimplemented to_cpp) #{inspect}"
   end
@@ -96,6 +98,7 @@ class RenderState
   def parents() @opts[:parent] end
   alias parent parents
   def parent_names() parent.map{|p|p.name.to_cpp self}.join('::') end
+  def last_parent() parent.last.name.to_cpp RenderState.new end
   def add_parent(p) 
     new(parent: parent+[p])
   end
@@ -149,6 +152,11 @@ GotoLabel = Node.new :type, :label do
     end
   end
 end
+ThrowStmt = Node.new :expr do ## DOUBLE CHECK, maybe
+  def to_cpp rs
+    "throw #{expr.to_cpp rs}"
+  end
+end
 
 DotName = Node.new(:name) do
   def name= val; @name = Array.wrap(val) end
@@ -183,17 +191,17 @@ FuncCall = Class.new Node.new(:name, :args, :generics) do
     end
   end
   def generics= val
-    @generics = val.nil? ? nil : Array.wrap(val)
+    @generics = Array.wrap_nil val
   end
   def to_cpp(rs)
-    name.to_cpp(rs) + "#{"<#{generics.map { |g| g.to_cpp(rs) % ''}.join', '}>" unless generics.nil?}(" + (
+    name.to_cpp(rs) + "#{"<#{generics.map { |g| g.to_cpp(rs, '') }.join', '}>" unless generics.nil?}(" + (
       args.nil? ? '' : args.map{|a|a.to_cpp rs}.join(', ')) + ')'
 
       #args != ?! && [*args].map(&:to_cpp).join(', ') || '') << ')'
   end
 end
 ExprStmt = Node.new(:expr) do
-  def to_cpp(rs); rs.indentation + expr.to_cpp + ';' end
+  def to_cpp(rs); rs.indentation + expr.to_cpp(rs) + ';' end
 end
 LangSection = Node.new(:txt) 
 AutoDecl = Node.new(:name, :val) do
@@ -281,9 +289,9 @@ Type = Node.new(:base, :derived, :storage) do
             #n = "[#{d[:size] && d[:size].send(m, rs)}]"
             res = if left; left = false; "(#{res})#{n}"
                   else; "#{res}#{n}" end
-          elsif d.has_key? :args
+          elsif d.has_key? :func_sig
             begin
-            n = "(#{[*d[:args]].map { |a| a.send(m, rs) % '' }.join', '})"
+            n = "(#{[*d[:func_sig]].map { |a| a.send(m, rs) % '' }.join', '})"
             res = if left; left = false; "(#{res})#{n}"
                   else; "#{res}#{n}" end
             rescue => e
@@ -318,8 +326,9 @@ Type = Node.new(:base, :derived, :storage) do
   def to_hpp rs
     base_hpp(rs) << ' ' << derived_cpp(rs)
   end
-  def to_cpp rs ##note to self: % format result with the name
-    base_cpp(rs) << ' ' << derived_cpp(rs)
+  def to_cpp rs=RenderState.new, name=nil ##note to self: % format result with the name
+    r = base_cpp(rs) << ' ' << derived_cpp(rs)
+    (name.nil? ? r : r % name).rstrip
   end
 end
 TypeDecl = Node.new(:name, :type) do
@@ -364,7 +373,7 @@ body.to_cpp(rs.gen_header!.add_parent(self)){|n|
     rs = rs.add_parent(self)
     ##rs = rs.new parent: self
     <<-"C++"
-#{rs.indentation}#{type} #{name} #{
+#{rs.indentation}#{type}#{" #{name} " if name}#{
   unless parents.nil?
     ": #{parents.map { |p| "#{p[:vis].to_cpp(rs)} #{p[:parent].to_cpp(rs)}" }.join', '} \n"
   end
@@ -439,9 +448,35 @@ InfixExpr = Node.new(:left, :infix, :right) do
     } #{right.to_cpp rs}"
   end
 end
+FuncCall2 = Node.new(:args) do
+  def args= v; @args = Array.wrap_nil v; end
+  def to_cpp rs
+    "(#{args.map{|_|_.to_cpp rs}.join(', ') unless args.nil?})"
+  end
+end
+PostfixExpr = Node.new(:x, :postfixen) do
+  def scan *args
+    postfixen.each do |c| c.scan *args end
+  end
+  def postfixen= v
+    @postfixen = Array.wrap(v)
+  end
+  def to_cpp rs
+    "#{x.to_cpp rs}#{postfixen.map{|_|_.to_cpp rs}.join}"
+  end
+end
 TernaryExpr = Node.new(:cond, :t, :f) do
   def to_cpp rs
     "#{cond.to_cpp rs} ? #{t.to_cpp rs} : #{f.to_cpp rs}"
+  end
+end
+PrefixExpr = Node.new(:op, :expr) do
+  def scan p
+    op.scan p
+    expr.scan p
+  end
+  def to_cpp rs
+    "#{op}#{expr.to_cpp rs}"
   end
 end
 BracketExpr = Node.new(:expr) do
@@ -454,7 +489,7 @@ GenericIdent = Node.new(:ident, :generic) do
     @generic = Array.wrap(val)
   end
   def to_cpp(rs)
-    "#{ident.to_cpp(rs)}<#{generic.map{|n| n.to_cpp(rs) % ''}.join', '}>"
+    "#{ident.to_cpp(rs)}<#{generic.map{|n| n.to_cpp(rs, '')}.join', '}>"
   end
 end
 UnionType = Node.new(:members) do
@@ -487,10 +522,15 @@ EnumDecl = Node.new :name, :fields do
 end
 StructType = Node.new(:body) do
   def to_cpp(rs)
-    "struct{#{body.to_cpp(rs)}}"
+    "struct{#{"\n#{body.to_cpp rs.indent}\n#{rs.indentation}" unless body.nil?}}"
   end
 end
 VarDeclSimple = Node.new(:name, :type, :val) do
+  def scan p
+    name.scan p
+    type.scan p
+    val.scan p
+  end
   def to_cpp(rs = RenderState.new())
     # res = type.to_cpp
     # [*names].map { |n| (res + ';') % n }.join('')
@@ -546,6 +586,9 @@ ImportStmt = Node.new(:pkg) do
 end
 require'forwardable'
 StringLit = Node.new(:wchar, :str) do
+  def scan p
+    str.gsub!(/[^\\]\n/, "\\\n") ##add \ to the ends of multiline strings for c++
+  end
   def to_cpp(*); "#{?L if wchar}\"#{str}\"" end
   def str= val; @str = val.to_s end
   extend Forwardable
@@ -650,18 +693,19 @@ DtorDecl = Node.new(:stmts, :specifier) do
   def to_hpp rs
     "#{rs.indentation}#{
       specifier unless specifier.nil?
-    }~#{
-      rs.parent.last.name.to_hpp(rs)
-    }();"
+    }~#{rs.last_parent}();"
   end
 end
 AnonDecl = Node.new :type do ## DOUBLE CHECK THIS
-  def to_cpp rs; ''; end ## works fine inside structs/class where
+  def to_cpp rs
+    
+  end ## works fine inside structs/class where
   def to_hpp rs ## the header is always generated above the impl
     "#{rs.indentation}#{type.to_cpp(rs) % ''};"
   end
 end
-CtorDecl = Node.new(:args, :initializers, :body, :name) do
+CtorDecl = Node.new(:args, :initializers, :body, :explicit) do
+  def explicit= val; @explicit = val.nil? ? nil : val.to_s.chomp+' ' end
   def args= a; @args = Array.wrap a; end
   def initializers= i; @initializers = (i.nil? ? nil : Array.wrap( i)); end
   def scan(*args) body.scan(*args) end
@@ -691,12 +735,7 @@ end}
   end
   def to_hpp rs
     parent = rs.parent.last
-    "#{rs.indentation}#{name.nil? ?
-      parent.respond_to?(:name) ?
-        parent.name.to_hpp(rs) :
-        (binding.pry if false;'/*constructor name missing and parent node has no name*/') :
-      name
-    }(#{args.map{|a|a.to_hpp rs}.join', '});"
+    "#{rs.indentation}#{explicit}#{parent.name.to_hpp(rs)}(#{args.map{|a|a.to_hpp rs}.join', '});"
   end
 end
 FuncDecl = Class.new Node.new(:name, :sig, :body, :generics, :specifiers) do

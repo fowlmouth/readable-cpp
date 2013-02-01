@@ -1,12 +1,18 @@
 
 module LazyPP
 Transform = Parslet::Transform.new {
-  rule(ident: simple(:i)) { i.to_s.intern }
+  rule(ident: simple(:i)) { i.to_s }
   rule(ident: simple(:i), generics: simple(:g)) {
     GenericIdent.new(i, g)
   }
   rule(ident: simple(:i), generics: sequence(:g)) {
     GenericIdent.new i, g
+  }
+  rule(expr: simple(:x), generics: simple(:g)) {
+    GenericIdent.new x,g
+  }
+  rule(expr: simple(:x), generics: sequence(:g)) {
+    GenericIdent.new x,g
   }
   rule(void: simple(:v)) { 'void' }
   rule(any: simple(:__)) { '...' }
@@ -31,7 +37,7 @@ Transform = Parslet::Transform.new {
     BracketStmts.new s
   }
   rule(wchar: simple(:w), string: simple(:s)) {
-    StringLit.new(w, s)
+    StringLit.new(w, s.to_s)
   }
   rule(wchar: simple(:w), string: sequence(:s)) {
     StringLit.new(w, s.join(''))
@@ -73,9 +79,7 @@ Transform = Parslet::Transform.new {
   rule(lang_section: subtree(:l)) {
     #binding.pry
     LangSection.new(l) }
-  rule(#ident_def: 
-  {
-    id_names: sequence(:n), type: simple(:t)}) {
+  rule(id_names: sequence(:n), type: simple(:t)) {
     IdentDef.new n, t, nil
   }
   rule(#ident_def: 
@@ -83,9 +87,7 @@ Transform = Parslet::Transform.new {
     id_names: sequence(:n), type: simple(:t), id_default: simple(:d)}) {
     IdentDef.new n, t, d
   }
-  rule(#ident_def: 
-  {
-    id_names: simple(:n), type: simple(:t) }) {
+  rule(id_names: simple(:n), type: simple(:t)) {
     IdentDef.new n, t, nil
   }
   rule(#ident_def: 
@@ -97,9 +99,6 @@ Transform = Parslet::Transform.new {
   rule(ident_def: simple(:i), any: simple(:a)) {[i, '...']}
   rule(type: simple(:t), any: simple(:a)) {[t, '...']}
   rule(ident_def: simple(:_)) {_}
-  # rule(var_decl: {
-  #   name: simple(:n), type: simple(:t),
-  #   })
   rule(var_decl: {name: simple(:n), type: simple(:t)}) {
     VarDeclSimple.new(n, t, nil)
   }
@@ -210,8 +209,10 @@ Transform = Parslet::Transform.new {
   rule(return: simple(:exp)) {
     ReturnStmt.new exp
   }
-  rule(ctor_decl: subtree(:c)) {
-    CtorDecl.new(c[:args], c[:initializers], c[:body], c[:name])
+  rule(ctor_decl: {
+    explicit: simple(:e), args: subtree(:args),
+    initializers: subtree(:i), body: simple(:b)}) {
+    CtorDecl.new args, i, b, e
   }
   rule(dtor_decl: subtree(:d)) {
     DtorDecl.new(d[:body], d[:specifier] || nil)
@@ -240,67 +241,81 @@ Transform = Parslet::Transform.new {
   }) {
     LambdaFunc.new '=', p, r, b
   }
-  rule(prefix: simple(:p), expr: simple(:x), postfix: simple(:pp),
-    ternary: simple(:t), true: simple(:xT), false: simple(:xF)) {
-    TernaryExpr.new(Expr.new(p,x,pp), xT, xF)
+  rule(infix: {
+    left: simple(:l), op: simple(:o), right: simple(:r)}) {
+    InfixExpr.new l, o.to_s, r
   }
-  rule(parens: simple(:x), args: simple(:a)) {
-    FuncCall.new ParenExpr.new(x), a
+  #rule(postfix: sequence(:x)) { PostfixExpr.new x }
+  rule(left: simple(:x), access: simple(:a), ident: simple(:i)) {
+    PostfixExpr.new x, [a.to_s, i.to_s]
   }
-  rule(prefix: simple(:p), expr: simple(:x), postfix: simple(:pp)) {
-    Expr.new(p, x, pp)
+  rule(prefix_op: simple(:o), expr: simple(:x)) {
+    PrefixExpr.new o.to_s, x
   }
-  rule(prefix: simple(:p), expr: simple(:x), postfix: simple(:pp), 
-    args: subtree(:a)) {
-    FuncCall.new(Expr.new(p, x, nil), a)
+  rule(ternary: {
+    condition: simple(:c), true: simple(:t), false: simple(:f)
+  }) {
+    TernaryExpr.new c, t, f
   }
-  rule(prefix: simple(:p), expr: simple(:x), postfix: simple(:pp),
-    generics: subtree(:g), args: subtree(:a)) {
-    FuncCall.new(Expr.new(p, x, pp), a, g)
+  rule(expr: simple(:x), postfix: sequence(:p)) {
+    PostfixExpr.new x, p
   }
-  rule(prefix: simple(:p), expr: simple(:x), postfix: simple(:pp),
-    args: subtree(:a),    infix: simple(:i), right: simple(:x2)) {
-    InfixExpr.new FuncCall.new(Expr.new(p, x, nil), a), i.to_s.intern, x2
+  rule(args: sequence(:a)) {
+    FuncCall2.new a
   }
-  rule(expr: simple(:x), args: subtree(:a), infix: simple(:i), right: simple(:r)) {
-    InfixExpr.new FuncCall.new(x, a), i.to_s.intern, r
+  rule(args: simple(:a)) {
+    FuncCall2.new a
   }
+  rule(cast: {type: simple(:t), ident: simple(:i)})
+
+  # rule(prefix: simple(:p), expr: simple(:x), postfix: simple(:pp),
+  #   args: subtree(:a),    infix: simple(:i), right: simple(:x2)) {
+  #   InfixExpr.new FuncCall.new(Expr.new(p, x, nil), a), i.to_s.intern, x2
+  # }
+  # rule(expr: simple(:x), args: subtree(:a), infix: simple(:i), right: simple(:r)) {
+  #   InfixExpr.new FuncCall.new(x, a), i.to_s.intern, r
+  # }
   # rule(prefix: simple(:p), expr: simple(:x), args: simple(:a)) {
   #   FuncCall.new(Expr.new(p.to_s, x, nil), a)
   # }
-  rule(
-    prefix: simple(:p), expr: simple(:x),
-    infix: simple(:i), right: simple(:x2)) {
-    InfixExpr.new(Expr.new(p, x, nil), i.to_s, x2)
-  }
-  rule(
-    prefix: simple(:p), expr: simple(:x), postfix: simple(:pp),
-    infix: simple(:i), right: simple(:x2)) {
-    InfixExpr.new(Expr.new(p, x, pp), i.to_s, x2)
-  }
-  rule(
-    expr: simple(:x), postfix: simple(:pp),
-    infix: simple(:i), right: simple(:x2)) {
-    InfixExpr.new(Expr.new(nil, x, pp), i.to_s, x2)
-  }
-  rule(expr: simple(:x)) {
-    Expr.new(nil, x, nil)
-  }
-  rule(expr: simple(:x), postfix: simple(:pp)) {
-    Expr.new(nil, x, pp)
-  }
-  rule(expr: simple(:l), infix: simple(:i), right: simple(:r)) {
-    InfixExpr.new(l, i.to_s, r)
+  # rule(
+  #   prefix: simple(:p), expr: simple(:x),
+  #   infix: simple(:i), right: simple(:x2)) {
+  #   InfixExpr.new(Expr.new(p, x, nil), i.to_s, x2)
+  # }
+  # rule(
+  #   prefix: simple(:p), expr: simple(:x), postfix: simple(:pp),
+  #   infix: simple(:i), right: simple(:x2)) {
+  #   InfixExpr.new(Expr.new(p, x, pp), i.to_s, x2)
+  # }
+  # rule(
+  #   expr: simple(:x), postfix: simple(:pp),
+  #   infix: simple(:i), right: simple(:x2)) {
+  #   InfixExpr.new(Expr.new(nil, x, pp), i.to_s, x2)
+  # }
+  # rule(expr: simple(:x)) {
+  #   Expr.new(nil, x, nil)
+  # }
+  # rule(expr: simple(:x), postfix: simple(:pp)) {
+  #   Expr.new(nil, x, pp)
+  # }
+  # rule(expr: simple(:l), infix: simple(:i), right: simple(:r)) {
+  #   InfixExpr.new(l, i.to_s, r)
+  # }
+  rule(expr: simple(:x)) { 
+    x.is_a?(Parslet::Slice) ?
+      x.to_s : 
+      x 
   }
   rule(expr_stmt: simple(:x)) {
     ExprStmt.new(x)
   }
-  rule(expr: simple(:x), args: subtree(:a)) {
-    FuncCall.new x, a
-  }
-  rule(parens: simple(:x), args: subtree(:a)) {
-    FuncCall.new x, a
-  }
+  # rule(expr: simple(:x), args: subtree(:a)) {
+  #   FuncCall.new x, a
+  # }
+  # rule(parens: simple(:x), args: subtree(:a)) {
+  #   FuncCall.new x, a
+  # }
   # rule(func: simple(:name), args: subtree(:args)) {
   #   FuncCall.new name, Array.wrap(args)
   # }
@@ -370,6 +385,9 @@ Transform = Parslet::Transform.new {
   rule(namespaced: sequence(:i)) {
     NamespaceIdent.new(i)
   }
+  rule(namespaced: {left: simple(:l), right: simple(:r)}) {
+    NamespaceIdent.new [l, r]
+  }
   rule(modifier: simple(:m), namespaced: simple(:n)) { 
     [m, n]
   }
@@ -382,6 +400,7 @@ Transform = Parslet::Transform.new {
   rule(visibility_stmt: simple(:v)) {
     Visibility.new v.to_s
   }
+  rule(:throw => simple(:x)) { ThrowStmt.new x }
   rule(access: simple(:a), expr: simple(:x)) {
     AccessExpr.new a, x
   }

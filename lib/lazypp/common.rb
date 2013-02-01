@@ -29,6 +29,11 @@ derive from Parslet::Parser. Be thou tripping?
       rule(:semicolon) { str(?;) }
       rule(:l_bracket) { str(?{) }
       rule(:r_bracket) { str(?}) }
+      ## swap these in when im willing to change all references in parser.rb
+      # rule(:l_bracket) { str(?[) }
+      # rule(:r_bracket) { str(?]) }
+      # rule(:l_brace)   { str(?{) }
+      # rule(:r_brace)   { str(?}) }
     end
   end
 end

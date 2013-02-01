@@ -3,7 +3,7 @@ module LazyPP
 class Parser < Parslet::Parser
   include ParserMethods
   def brackets(rule) 
-    l_bracket >> space? >> rule >> space? >> r_bracket
+    l_bracket >> spaced?(rule) >> r_bracket
   end
   def brackets?(rule)
     brackets(rule) | rule
@@ -80,7 +80,7 @@ class Parser < Parslet::Parser
     ( `return` | `for` | `while` | `if` | `elseif` | `else` | `type` |
       `anon` | `ctor` | `dtor` | `oper` | `func` | `namespace` |
       `namespace` | `any` |
-      visibility | english_reserved
+      visibility | english_reserved | specifier
     ) >> match['\w'].absent?
   }
   rule(:english_reserved) { `is` | (`a` >> (`s`|`n`)) }
@@ -90,11 +90,13 @@ class Parser < Parslet::Parser
   }
   #TODO another rule for just generic ident for function/class decls
   #update: this is done somewhere, maybe func_call_new
-  rule(:generic?) {
-    ( str(?<) >> 
-      comma_list(type | int | char#|namespaced_ident|ident#|type
-      ).as(:generics) >> str(?>)
-    ).maybe
+  rule(:namespaced_generic) {
+    join(ident_no_keyword << generic?, str('::'))
+  }
+  rule(:generic?) { generic.maybe  }
+  rule(:generic) {
+    str(?<) >> 
+    comma_list(type | int | char).as(:generics) >> str(?>)
   }
   rule(:digit) do match['\d'] end
   rule(:int) { digit.repeat(1).as(:int) }
@@ -204,7 +206,7 @@ class Parser < Parslet::Parser
     (
       `lang` >> space >> (
         `c` >> str("++").absent? >> space? >>
-        brackets(CP.as(:text))
+        brackets(CParser::Parser.new)
       )
     ).as(:lang_section)
   }
@@ -220,7 +222,8 @@ class Parser < Parslet::Parser
       `anon` >> (
         space >> (
           `namespace` >> space? >> bracket_body.as(:namespace) |
-          union_decl.as(:union)
+          `struct`.present? >> type |
+          `union`.present? >> type #union_decl.as(:union)
           #`union` >> space? >> bracket_body.as(:union)
         )
       ) >> semicolon_terminal
@@ -329,7 +332,10 @@ class Parser < Parslet::Parser
   }
   rule(:ctor_decl) {
     (
-      `ctor` >> (space >> (namespaced_ident|ident).as(:name)).maybe >> colon_is? >>
+      `ctor` >> 
+      #(space >> (namespaced_ident|ident).as(:name)).maybe >> 
+      colon_is? >>
+      (`explicit` >> space?).maybe.as(:explicit) >> 
       #parens(`void` | ident_defs).as(:args) >> space? >>
       func_sig_args >> space? >>
       join(
@@ -345,8 +351,8 @@ class Parser < Parslet::Parser
     (
       `dtor` >> space? >> (colon >> space?).maybe >>
       (specifier.as(:specifier) >> space?).maybe >>
-      (parens(spaced?(`void`)) >> space?).maybe >>
-      body.as(:body)
+      (parens(spaced?(`void`.maybe)) >> space?).maybe >>
+      body.as(:body) >> semicolon_terminal
     ).as(:dtor_decl)
   }
 
@@ -468,7 +474,7 @@ class Parser < Parslet::Parser
   }
   rule(:func_sig_args) {
     parens(
-      spaced?(func_sig_args_innards__ | r_paren.present?.as(:void)).as(:args)
+      spaced?(func_sig_args_innards__ | r_paren.present?.as(:void)).as(:func_sig)
     )
   }
   rule(:any_arg) { (`any`|str('...')).as(:any) }
@@ -481,7 +487,7 @@ class Parser < Parslet::Parser
   }
   rule(:func_sig_args_innards) { ##func sig without parens 
     ( func_sig_args_innards__   ##used with english `function taking ..`
-    ).as(:args)
+    ).as(:func_sig)
   }
 
   rule(:newline) { match['\n'] | any.absent? }
@@ -493,7 +499,17 @@ class Parser < Parslet::Parser
   }
   rule(:dot_expr) {
     #join(expr.as(:expr), access.as(:access)).as(:dot_expr)
-    join(base_expr.as(:expr), access.as(:access)).as(:dot_expr)
+    #join(base_expr.as(:expr), access.as(:access)).as(:dot_expr)
+
+    (
+      base_expr >>
+      ( 
+        str(?[) >> spaced?(comma_list(expr)).as(:bracketed) >> str(?]) >>
+        access.as(:access).maybe |
+        access.as(:access)
+      ).repeat(0)
+    ).as(:dot_expr)
+
   }
   rule(:func_call_new) {
     (
@@ -589,6 +605,149 @@ class Parser < Parslet::Parser
   rule(:ident_defs) {
     join(ident_def, spaced?(comma|semicolon))
   }
+
+  rule(:base_expr__) {
+    (
+    ident | float | int | string | char | lambda_func |
+    brackets(comma_list(expr)).as(:struct_lit) |
+    parens(expr_comma_list.as(:parens))
+    ).as(:expr)
+  }
+  rule(:generic_base) {
+    (ident >> generic).as(:expr) |
+    base_expr__
+  }
+
+  rule(:inc_dec) { str('++') | str('--') }
+
+  rule(:expr) { expr_throw }
+  # 1
+  rule(:expr_scope) {
+    ( generic_base.as(:left) >>
+      str('::') >> expr_scope.as(:right) ).as(:namespaced).as(:expr) |
+    generic_base
+  }
+  # 2
+  rule(:expr_postfix) {
+    ( expr_scope >>
+      ( str(?[) >> spaced?(expr.as(:sq_bracket_expr)) >> str(?]) |
+        parens(comma_list(expr).maybe.as(:args)) |
+        (str('.') | str('->')).as(:access) >> ident |
+        inc_dec.as(:op)
+      ).repeat(1).as(:postfix)
+    ) |
+    expr_scope
+  }
+  # 3
+  rule(:expr_unary) {
+    expr_postfix |
+    (
+      (`++` | `\-\-`).as(:prefix_op) >> expr_unary.as(:expr) |
+      (`+`|`\-`|`!`|`~`|`*`|`&`).as(:prefix_op) >> cast__.as(:expr)
+    )
+  }
+  rule(:cast__) {
+    (parens(type) >> cast__.as(:expr)).as(:cast) |
+    expr_unary
+  }
+  # 4 
+  rule(:expr_ptm) {
+    ( cast__.as(:left) >>
+      (str('.*')|str('->*')).as(:access) >>
+      ident
+    ) |
+    cast__
+  }
+
+  # 5
+  rule(:expr_mult) {
+    infix_expr(
+      expr_ptm,
+      match['*/%'],
+      expr_mult) |
+    expr_ptm
+  }
+  # 6
+  rule(:expr_add) {
+    infix_expr(
+      expr_mult,
+      match['+\-'],
+      expr_add) |
+    expr_mult
+  }
+  # 7
+  rule(:expr_shift) {
+    infix_expr(
+      expr_add,
+      str('<<') | str('>>'),
+      expr_shift) |
+    expr_add
+  }
+  # 8
+  rule(:expr_comp) {
+    infix_expr(
+      expr_shift,
+      `<=` | `>=` | `<` | `>`,
+      expr_comp) |
+    expr_shift
+  }
+  # 9
+  rule(:expr_eq) {
+    infix_expr(
+      expr_comp,
+      `!=` | `==`,
+      expr_eq) |
+    expr_comp
+  }
+  # 10-14
+  rule(:expr_bin) {
+    infix_expr(
+      expr_eq, 
+      `&` >> `&`.absent? |
+      str(?^)            |
+      `|` >> `|`.absent? |
+      `&&` | `||`,
+      expr_bin) |
+    expr_eq
+  }
+  #15
+  rule(:expr_ternary) {
+    ( expr_bin.as(:condition) >>
+      spaced?(`?`) >> expr_ternary.as(:true) >>
+      spaced?(`:`) >> expr_ternary.as(:false)
+    ).as(:ternary) |
+    infix_expr(
+      expr_bin,
+      `=`|`+=`|`\-=`|`*=`|`/=`|`%=`|`<<=`|`>>=`|
+      `&=`|str('^=')|`|=`,
+      expr_ternary) |
+    expr_bin
+  }
+  #16
+  rule(:expr_throw) {
+    `throw` >> 
+    ( space >> expr_ternary |
+      space?>> parens(expr_ternary)
+    ).as(:throw) |
+    expr_ternary
+  }
+  #17
+  rule(:expr_comma_list) {
+    ( expr_throw.as(:left) >>
+      spaced?(comma.as(:op)) >>
+      expr_comma_list.as(:right)
+    ).as(:infix) |
+    expr_throw
+  }
+  #16 is the entry point for expressions.
+  #17 is available from inside parens
+
+  def infix_expr left, op, right
+    ( left.as(:left) >> spaced?(op.as(:op)) >> right.as(:right)
+    ).as(:infix)
+  end
+
+
   rule(:base_expr) {
     (operator_prefix.as(:op) >> space?).maybe.as(:prefix) >>
     (
@@ -608,11 +767,11 @@ class Parser < Parslet::Parser
       )
     ).maybe
   }
-  rule(:expr) {
-    #paren_tagged?(base_expr.as(:expr), :parens)
-    #base_expr.as(:expr)
-    dot_expr
-  }
+  # rule(:expr) {
+  #   #paren_tagged?(base_expr.as(:expr), :parens)
+  #   #base_expr.as(:expr)
+  #   dot_expr
+  # }
   rule(:sq_bracket_expr) {
     (
       str(?[) >> space? >> expr >> space? >> str(?])
@@ -649,7 +808,7 @@ class Parser < Parslet::Parser
     namespace_decl | type_decl | ctor_decl | dtor_decl | oper_decl |
     conditional | lang_section | include_stmt | define_stmt |
     brackets(program.as(:bracket_stmts)) |
-    (dot_expr.as(:expr_stmt) >> semicolon_terminal)
+    (expr.as(:expr_stmt) >> semicolon_terminal)
   }
   rule(:bracket_body) {
     brackets(program.maybe)
@@ -664,7 +823,12 @@ class Parser < Parslet::Parser
     space? >>
     (stmt >> space?).repeat.as(:stmts)
   }
+  rule(:shebang) { str('#!') >> (newline.absent? >> any).repeat(0) >> newline }
+  rule(:file) {
+    shebang.maybe >>
+    program
+  }
 
-  root :program
+  root :file
 end
 end
