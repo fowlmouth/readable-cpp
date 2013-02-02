@@ -449,7 +449,9 @@ InfixExpr = Node.new(:left, :infix, :right) do
   end
 end
 FuncCall2 = Node.new(:args) do
-  def args= v; @args = Array.wrap_nil v; end
+  def args= v
+    @args = Array.wrap_nil(v.to_s == "!" ? nil : v)
+  end
   def to_cpp rs
     "(#{args.map{|_|_.to_cpp rs}.join(', ') unless args.nil?})"
   end

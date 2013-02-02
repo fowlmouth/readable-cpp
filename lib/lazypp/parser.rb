@@ -511,6 +511,15 @@ class Parser < Parslet::Parser
     ).as(:dot_expr)
 
   }
+  rule(:func_call_newest) {
+    ( str(?!) |
+      parens(comma_list(expr).maybe) |
+      space_nonterminal? >> join(
+        expr, 
+        space_nonterminal? >> comma >> space?
+      )
+    ).as(:args)
+  }
   rule(:func_call_new) {
     (
       str(?<) >> space? >> comma_list(type).as(:generics) >> space? >> str(?>) #>> space_nonterminal.maybe
@@ -634,7 +643,10 @@ class Parser < Parslet::Parser
         parens(comma_list(expr).maybe.as(:args)) |
         (str('.') | str('->')).as(:access) >> ident |
         inc_dec.as(:op)
-      ).repeat(1).as(:postfix)
+      ).repeat(0).as(:postfix) >>
+      ( str(?!).as(:args) |
+        space_nonterminal >> join(expr, space_nonterminal? >> comma >> space?).as(:args)
+      ).maybe
     ) |
     expr_scope
   }

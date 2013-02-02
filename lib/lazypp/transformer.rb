@@ -260,6 +260,9 @@ Transform = Parslet::Transform.new {
   rule(expr: simple(:x), postfix: sequence(:p)) {
     PostfixExpr.new x, p
   }
+  rule(expr: simple(:x), postfix: sequence(:p), args: subtree(:a)) {
+    PostfixExpr.new x, [*p, FuncCall2.new(a)]
+  }
   rule(args: sequence(:a)) {
     FuncCall2.new a
   }
