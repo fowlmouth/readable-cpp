@@ -1,4 +1,4 @@
-LazyPP is a partial implementation of the [SPECS proposal](http://www.csse.monash.edu.au/~damian/papers/HTML/ModestProposal.html). It is an alternate syntax for C++. No semantics are enforced, no runtime is used, the syntax should map 1:1 with C++.
+ReadableCpp is a partial implementation of the [SPECS proposal](http://www.csse.monash.edu.au/~damian/papers/HTML/ModestProposal.html). It is an alternate syntax for C++. No semantics are enforced, no runtime is used, the syntax should map 1:1 with C++.
 
 ### Type declaration syntax
 This is the most important difference from C++. Studies have shown that reading type declarations in C can cause dizziness, drymouth, nausea, diabetes, ocular warts and constipation and may be linked to low sperm count[[citation needed]](http://google.com). They would have you believe that you should look at the name, go right until you cant, go left until you cant and repeat until you have the whole type, I believe that we should read it left-to-right, like English (God's language.)
