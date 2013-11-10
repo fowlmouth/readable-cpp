@@ -10,7 +10,7 @@ require'fileutils'
 require'trollop'
 
 %w[common parser nodes transformer package program].
-each do |f| require_relative '../lib/lazypp/'+f end
+each do |f| require_relative '../lib/readable-cpp/'+f end
 
 begin
   require'rb-inotify'
@@ -51,7 +51,7 @@ end
 opts = Trollop.options {
   banner <<-EOS
 Usage: 
-    lazypp.rb -f somefile.lpp
+    readable-cpp.rb -f somefile.lpp
 
     Packages will be searched in
 #{LazyPP::Package::PackageDir.map { |dir|
